@@ -40,22 +40,25 @@ The first prototype used `librespot` (unofficial Rust implementation). Login wor
 
 ## Design
 
-Reference image: `docs/design.png`. Read it before working on any UI.
+Reference image: `docs/design-2.png` — **kept locally only, not committed** (third-party mockup with real album covers; listed in `.gitignore`). Follow its layout and style; read it before working on any UI. It shows a phone-sized screen; Aural adapts it to a small Mac window.
 
-A single **compact window** (roughly 320 × 360 pt, not resizable or only slightly), rounded corners, Liquid Glass background. Top to bottom:
+A single **portrait window, about 320 × 560 pt, fixed size** (the owner will review the size), rounded corners. Top to bottom:
 
-1. **Header row:** album art (square, rounded corners, ~110 pt) on the left; on the right a small monospaced uppercase label `NOW PLAYING`, the track title (large, bold), the artist (secondary gray), and a heart button (filled with the accent color when liked).
-2. **Progress bar:** thin track, accent-colored fill, round draggable knob. Below it, elapsed time on the left (`1:25`) and remaining time on the right (`-2:10`), in a small monospaced font.
-3. **Controls row:** shuffle, previous, a **large circular play/pause button filled with the accent color**, next, repeat. Shuffle/repeat show the accent color when active.
-4. **Bottom row:** a small icon + label button that opens the **user's playlists**. The exact presentation (popover, sheet, or the window expanding) is decided during development — propose 2 options with a quick prototype before committing.
+1. **Header:** a down-chevron on the left (shown, no action yet; may later collapse into a compact mode), the **name of the current context** in the center (playlist / album, e.g. "Indie Rock Road Trip"), a `…` menu on the right (settings: replace API key, Soloist version — Stage 7; "Go to album").
+2. **Track info:** title (bold) and artist (secondary), centered.
+3. **Time:** `01:23 | 02:35` (elapsed | total), small, with monospaced digits, above the cover.
+4. **Cover with progress ring:** the album art **cropped to a circle**, surrounded by a **circular progress ring** (accent-colored arc on a faint track) with a round **draggable knob**. Custom-drawn (no system control exists): must support VoiceOver (adjustable value) and keyboard seeking.
+5. **Controls row:** [left slot], previous, a **large white circular play/pause button**, next, **heart** (accent color when liked). The design's `⊖` ("hide song") is dropped — no API for it. The left slot needs an in-scope replacement so the row stays balanced; decide in Stage 4/5 (candidates: skip back 15 s — Soloist reports `seek_backward` with `step_ms: 15000`; go to album/playlist).
+6. **Bottom row:** shuffle, **list** (opens the user's playlists and the queue — the presentation, e.g. popover / sheet / panel sliding over the player, is prototyped in 2 options in Stage 4), **volume** (opens a small glass popover with a slider), repeat. Shuffle/repeat use the accent color when active.
 
 Visual rules:
-- **Accent color:** lime green, approximately `#C8F04B` (tune to match the reference). Used sparingly: play button, progress fill, active states, heart.
-- **Fonts:** SF Pro for text, SF Mono for the `NOW PLAYING` label and the time stamps. System fonts only.
-- **Liquid Glass:** the window background and floating controls use Liquid Glass (`.glassEffect()` and system glass button styles on macOS 26). Glass belongs to the controls/chrome layer, not to content like album art. Keep enough contrast for text and the accent color on light wallpapers.
-- Respect **Reduce Transparency** and **Increase Contrast** (verify how SwiftUI glass behaves with them; fall back to an opaque dark background like the reference).
-- Prefer **system SwiftUI controls and SF Symbols** over custom-drawn ones, so they adopt Liquid Glass automatically.
-- Supports dark and light appearance.
+- **Background:** a vertical gradient **tinted from the current cover's dominant color** (computed from the small, already downscaled cover image), dark enough for white text. It changes smoothly with the track. Opaque, as in the design: it is the content layer and keeps text readable on any wallpaper.
+- **Accent color:** warm peach, approximately `#F0B878` (tune to match the reference). Fixed, not derived from the cover. Used sparingly: progress ring and knob, time highlight, heart, active shuffle/repeat.
+- **Liquid Glass (Apple's design language, macOS 26):** glass belongs to the **controls layer**, not to content. Use system glass button styles (`.glass`, `.glassProminent` for play/pause, tinted white) and `.glassEffect()`, grouping nearby controls in a `GlassEffectContainer`. Header buttons, the `…` menu, control rows and popovers are glass; the cover and background are not. Check Apple's current documentation for exact APIs.
+- **Fonts:** system fonts only (SF Pro); monospaced digits for times.
+- Respect **Reduce Transparency** and **Increase Contrast** (verify how glass behaves with them; the opaque background already works without transparency).
+- Prefer **system SwiftUI controls and SF Symbols** over custom-drawn ones, so they adopt Liquid Glass automatically. The progress ring is the exception.
+- Text and controls are designed for the dark tinted background in both system appearances.
 
 **Minimum macOS version: 26.** Apple Silicon only.
 
@@ -99,7 +102,7 @@ App/                        # SwiftUI app target
     Models/                 # @Observable view models mirroring core state
     System/                 # Now Playing, media keys
 docs/
-  design.png
+  design-2.png             # design reference (local only, not committed)
 ```
 
 Principles:
@@ -184,7 +187,7 @@ Work **one stage at a time**. Each stage must end with something that runs. Do n
 1. **Soloist control prototype.** AuralCore with the Soloist source: launch Soloist, connect over WebSocket, play a URI, receive and log events. Driven from a tiny test executable or unit/integration test.
 2. **Minimal app + guided setup.** XcodeGen project; the guided first-run setup (install Soloist, API key, pairing — see "Soloist management in the app"); a plain SwiftUI window showing the current track with play/pause/next. Now Playing and media keys working.
 3. **Library and search.** Web API login as setup step 4. Playlists, Liked Songs, saved albums, search, and the like button's save/remove — all through the Web API (OAuth PKCE), since Soloist provides no library, search or like. Confirm each endpoint with a real request first. Remember `play` cannot take artist URIs.
-4. **Full UI per design.** The mini player as in `docs/design.png`, with Liquid Glass; the playlists button and panel (prototype 2 options first).
+4. **Full UI per design.** The player as in `docs/design-2.png` (see "Design"), with Liquid Glass: cover-tinted background, circular cover with progress ring, glass controls, volume popover, `…` menu; the list button's playlists / queue panel (prototype 2 options first).
 5. **Queue, shuffle, repeat, autoplay, like button.**
 6. **Demo mode** with the Local source.
 7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (update flow, expiry notice and exit-code-10 screen with "Update" button, a settings screen to replace the API key — see "Soloist management in the app"; first-run setup and install are done in Stage 2), app icon, README, screenshots and a short video recorded in demo mode.
