@@ -250,7 +250,7 @@ _Update this section at the end of each stage: what works, measured memory (Aura
   - Soloist cannot play Liked Songs as a context: `spotify:collection:tracks` is rejected, `spotify:user:<id>:collection` is accepted but ignored. Playing a track from any list plays it and queues the next 20 tracks of the list (`add_to_queue`); playlists and albums play as a whole via their URI. Artists (not playable) show their tracks via search `artist:"name"`.
   - App: plain library window (Playlists, Liked, Albums, Search; paged lazy lists; 60–64 px thumbnails), heart in the player (checks `contains` on track change, likes/unlikes, then reads back Spotify's state), followed playlists show "Tracks not available" but can be played. 35 unit tests.
   - Memory (Activity Monitor, owner): Aural ~35 MB playing with the library window closed, ~55 MB with it open after browsing all tabs; Soloist ~27 MB + helper ~4 MB. Fixed: thumbnails were loading 300 px images; the shared URL cache now keeps images on disk only. The library window is replaced by an in-player panel in Stage 4 — measure that again.
-  - Known issues: the library window's extra ~20 MB is not fully explained (likely the window's list/navigation views); the leaked Soloist API key still needs rotating.
+  - Known issues: closing the library window does not lower memory (`footprint`: 53 MB closed; a second open/browse/close cycle → 58 MB, i.e. mostly reused, +5 MB not explained). In Stage 4, check the in-player panel with several open/close cycles for growth. The leaked Soloist API key still needs rotating.
 - [ ] Stage 4 — Full UI with Liquid Glass
 - [ ] Stage 5 — Queue, shuffle, repeat, autoplay, like
 - [ ] Stage 6 — Demo mode (local files)
