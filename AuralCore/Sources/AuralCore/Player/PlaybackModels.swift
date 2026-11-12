@@ -85,6 +85,10 @@ public enum PlaybackEvent: Sendable, Equatable {
     /// send the complete (small) state, so the UI only has one case to handle.
     case stateChanged(PlaybackState)
     case loginChanged(isLoggedIn: Bool)
+    /// The service refused a login attempt (for Soloist: the API key is invalid).
+    case loginRejected
+    /// The playback engine stopped unexpectedly; the message is for logs / UI.
+    case sourceStopped(String)
     /// A command was rejected or something went wrong; the message is for logs / UI.
     case error(String)
 }

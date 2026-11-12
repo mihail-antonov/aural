@@ -12,15 +12,16 @@ public struct SoloistConfiguration: Sendable {
             .appending(path: "Aural/soloist/soloist", directoryHint: .notDirectory)
     }
 
-    /// Soloist's own default data directory (device identity, pairing session,
-    /// `soloist.pid`, `ws.addr`, `ws.port`). Kept separate from the executable
-    /// so that updates keep the pairing.
+    /// Aural's own Soloist data directory (device identity, pairing session,
+    /// `soloist.pid`, `ws.addr`, `ws.port`). Separate from the executable so
+    /// updates keep the pairing, and separate from Soloist's default directory
+    /// so a Soloist the user runs by hand never clashes with Aural's.
     public static var defaultDataDirectory: URL {
-        URL.applicationSupportDirectory.appending(path: "soloist", directoryHint: .isDirectory)
+        URL.applicationSupportDirectory.appending(path: "Aural/soloist-data", directoryHint: .isDirectory)
     }
 
     /// Keychain service name of the user's Soloist API key.
-    public static let apiKeyKeychainService = "aural-soloist-api-key"
+    public static let apiKeyKeychainService = "app.aural.soloist-api-key"
 
     public var executableURL: URL
     public var dataDirectory: URL

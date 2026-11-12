@@ -26,8 +26,11 @@ public actor SoloistSource: PlaybackSource {
     @discardableResult
     public func start(apiKey: String) async throws(SoloistError) -> SoloistStartMode {
         let continuation = self.continuation
-        let (mode, url) = try await process.start(apiKey: apiKey) { error in
-            continuation.yield(.error(error.localizedDescription))
+        let (mode, url) = try await process.start(apiKey: apiKey) { notice in
+            switch notice {
+            case .exited(let error): continuation.yield(.sourceStopped(error.localizedDescription))
+            case .loginRejected: continuation.yield(.loginRejected)
+            }
         }
 
         let connection = SoloistConnection(url: url)

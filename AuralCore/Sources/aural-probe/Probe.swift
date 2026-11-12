@@ -4,6 +4,7 @@ import Foundation
 /// Command-line driver for AuralCore's Soloist source (Stage 1, before the app).
 ///
 ///     aural-probe [--soloist PATH] [--name NAME] [play <uri>]
+///     aural-probe [--soloist PATH] install
 ///
 /// Starts (or attaches to) Soloist, prints every playback event, optionally
 /// plays a URI once logged in, and stops Soloist on Ctrl-C.
@@ -19,6 +20,11 @@ struct Probe {
             options = try Options(arguments: Array(CommandLine.arguments.dropFirst()))
         } catch {
             fail(error.localizedDescription + "\n\n" + Options.usage)
+        }
+
+        if options.install {
+            await install(to: options.soloistPath ?? SoloistConfiguration.defaultExecutableURL)
+            return
         }
 
         let apiKey: String
@@ -56,11 +62,23 @@ struct Probe {
                 }
             case .stateChanged(let state):
                 say("state    " + describe(state))
-            case .error(let message):
+            case .loginRejected:
+                say("login    rejected — the API key is invalid")
+            case .sourceStopped(let message), .error(let message):
                 say("error    \(message)")
             }
         }
         _ = shutdown
+    }
+
+    private static func install(to executable: URL) async {
+        say("Downloading Soloist from \(SoloistInstaller.officialDownloadURL.absoluteString)")
+        do {
+            let version = try await SoloistInstaller(executableURL: executable).install()
+            say("Installed Soloist \(version.version) at \(executable.path); expires \(version.expiryDate.formatted(date: .abbreviated, time: .omitted))")
+        } catch {
+            fail(error.localizedDescription)
+        }
     }
 
     // MARK: - Output
@@ -114,11 +132,12 @@ struct Probe {
 // MARK: - Arguments
 
 private struct Options {
-    static let usage = "usage: aural-probe [--soloist PATH] [--name NAME] [play <uri>]"
+    static let usage = "usage: aural-probe [--soloist PATH] [--name NAME] [play <uri> | install]"
 
     var soloistPath: URL?
     var deviceName = "Aural"
     var uri: String?
+    var install = false
 
     struct ArgumentError: LocalizedError {
         let errorDescription: String?
@@ -138,6 +157,8 @@ private struct Options {
                 guard let uri = remaining.popFirst() else { throw ArgumentError(errorDescription: "play needs a URI") }
                 guard uri.hasPrefix("spotify:") else { throw ArgumentError(errorDescription: "not a Spotify URI: \(uri)") }
                 self.uri = uri
+            case "install":
+                install = true
             case "-h", "--help":
                 throw ArgumentError(errorDescription: "Plays a Spotify URI through Soloist and prints events.")
             default:

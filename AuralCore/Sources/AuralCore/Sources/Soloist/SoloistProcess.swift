@@ -25,19 +25,27 @@ actor SoloistProcess {
         self.configuration = configuration
     }
 
+    /// Things only visible in Soloist's process output, not over WebSocket.
+    enum Notice: Sendable, Equatable {
+        /// Soloist ended on its own (not because `stop()` was called).
+        case exited(SoloistError)
+        /// Spotify refused a pairing attempt: the API key is invalid.
+        case loginRejected
+    }
+
     /// Makes sure Soloist is running and returns how it was started and its WebSocket URL.
-    /// - Parameter onUnexpectedExit: called if a Soloist that Aural launched
-    ///   exits on its own later (not when `stop()` is called).
+    /// - Parameter onNotice: called from a background thread for events of a
+    ///   Soloist that Aural launched (an attached instance's output is not visible).
     func start(
         apiKey: String,
-        onUnexpectedExit: @escaping @Sendable (SoloistError) -> Void
+        onNotice: @escaping @Sendable (Notice) -> Void
     ) async throws(SoloistError) -> (SoloistStartMode, URL) {
         if let pid = runningInstancePID() {
             Log.soloist.info("Attaching to running Soloist (pid \(pid))")
             guard let url = webSocketURL(writtenAfter: nil) else { throw .runningWithoutWebSocket }
             return (.attached(pid: pid), url)
         }
-        let url = try await launch(apiKey: apiKey, onUnexpectedExit: onUnexpectedExit)
+        let url = try await launch(apiKey: apiKey, onNotice: onNotice)
         return (.launched, url)
     }
 
@@ -64,7 +72,7 @@ actor SoloistProcess {
 
     private func launch(
         apiKey: String,
-        onUnexpectedExit: @escaping @Sendable (SoloistError) -> Void
+        onNotice: @escaping @Sendable (Notice) -> Void
     ) async throws(SoloistError) -> URL {
         let executable = configuration.executableURL
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
@@ -83,7 +91,7 @@ actor SoloistProcess {
             "--cache-size", String(configuration.cacheSizeMB),
         ]
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = Self.forwardingPipe()
+        process.standardOutput = Self.forwardingPipe(onNotice: onNotice)
         process.standardError = process.standardOutput
 
         exitState.withLock { $0 = ExitState() }
@@ -96,7 +104,7 @@ actor SoloistProcess {
             }
             if !wasStopping {
                 Log.soloist.error("Soloist ended unexpectedly: \(error.localizedDescription, privacy: .public)")
-                onUnexpectedExit(error)
+                onNotice(.exited(error))
             }
         }
 
@@ -137,10 +145,18 @@ actor SoloistProcess {
         }
     }
 
+    /// Soloist's output line when Spotify rejects the API key during pairing,
+    /// e.g. `2026-11-12 13:36:58.812: login failed: make sure --api-key is valid`.
+    /// Soloist sends no WebSocket event for this, so this line is the only signal.
+    /// Log text is not a stable API: keep the pattern here, in one place.
+    static func isLoginRejection(_ line: some StringProtocol) -> Bool {
+        line.contains(": login failed")
+    }
+
     /// A pipe whose output is forwarded line by line to the unified log.
     /// The pipe must be drained: if nobody reads it, its buffer fills up and
     /// Soloist blocks on its next log line.
-    private static func forwardingPipe() -> Pipe {
+    private static func forwardingPipe(onNotice: @escaping @Sendable (Notice) -> Void) -> Pipe {
         let pipe = Pipe()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -151,6 +167,7 @@ actor SoloistProcess {
             for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline) {
                 // `.private`: lines can contain the account's user name.
                 Log.soloistOutput.debug("\(line, privacy: .private)")
+                if isLoginRejection(line) { onNotice(.loginRejected) }
             }
         }
         return pipe
