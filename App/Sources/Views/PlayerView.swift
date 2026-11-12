@@ -5,6 +5,7 @@ import SwiftUI
 /// The designed mini player (Liquid Glass) replaces this in Stage 4.
 struct PlayerView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 14) {
@@ -30,12 +31,25 @@ struct PlayerView: View {
             .buttonStyle(.borderless)
             .disabled(model.playback.track == nil)
 
+            HStack {
+                Button("Library", systemImage: "music.note.list") { openWindow(id: "library") }
+                Spacer()
+                if model.library != nil {
+                    Button(model.isCurrentTrackLiked == true ? "Remove from Liked Songs" : "Add to Liked Songs",
+                           systemImage: model.isCurrentTrackLiked == true ? "heart.fill" : "heart",
+                           action: model.toggleLike)
+                        .labelStyle(.iconOnly)
+                        .disabled(model.isCurrentTrackLiked == nil)
+                }
+            }
+            .buttonStyle(.borderless)
+
             if let problem = model.problem {
                 Text(problem).font(.caption).foregroundStyle(.red)
             }
         }
         .padding(24)
-        .frame(width: 340, height: 360)
+        .frame(width: 340, height: 400)
     }
 
     @ViewBuilder private var artwork: some View {

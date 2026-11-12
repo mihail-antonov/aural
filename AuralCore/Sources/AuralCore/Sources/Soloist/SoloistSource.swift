@@ -110,6 +110,9 @@ public actor SoloistSource: PlaybackSource {
         }
     }
 
+    /// Soloist accepts only track URIs here.
+    public func addToQueue(uri: String) async throws { try await send(.addToQueue(uri: uri)) }
+
     private func send(_ command: SoloistCommand) async throws {
         guard let connection else { throw SoloistError.notConnected }
         try await connection.send(command)

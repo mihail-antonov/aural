@@ -26,6 +26,13 @@ final class AppModel {
     /// Shown in the player when something went wrong (e.g. Soloist stopped).
     private(set) var problem: String?
 
+    /// Spotify Web API access (library, search, likes). Nil until connected.
+    private(set) var library: LibraryService?
+    /// Whether the current track is in Liked Songs; nil while unknown.
+    private(set) var isCurrentTrackLiked: Bool?
+    /// Increases after every like/unlike so the Liked Songs list can reload.
+    private(set) var likedSongsVersion = 0
+
     let setup: SetupModel
 
     @ObservationIgnored private let configuration = SoloistConfiguration()
@@ -33,6 +40,11 @@ final class AppModel {
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
     @ObservationIgnored private var nowPlaying: NowPlayingController?
+    @ObservationIgnored private var likeTask: Task<Void, Never>?
+
+    /// How many following tracks are queued when a track is played from a list
+    /// (Soloist's `play` cannot start a playlist or album at a given track).
+    private static let queuedFollowingTracks = 20
 
     private let log = Logger(subsystem: "app.aural", category: "app")
 
@@ -50,6 +62,7 @@ final class AppModel {
             previous: { [weak self] in self?.previous() },
             seek: { [weak self] seconds in self?.seek(toMs: Int(seconds * 1000)) }
         )
+        if let credentials = WebAPICredentials.load() { connectLibrary(credentials) }
     }
 
     // MARK: - Lifecycle
@@ -117,13 +130,16 @@ final class AppModel {
         case .stateChanged(let state):
             let trackChanged = state.track?.id != playback.track?.id
             playback = state
-            if trackChanged { loadArtwork(for: state.track) }
+            if trackChanged {
+                loadArtwork(for: state.track)
+                refreshLiked(for: state.track)
+            }
             nowPlaying?.update(state, artwork: artwork)
         case .loginChanged(let loggedIn):
             isLoggedIn = loggedIn
             if loggedIn {
                 switch phase {
-                case .starting: phase = .player
+                case .starting: phase = needsLibrarySetup ? showLibrarySetup() : .player
                 case .setup: setup.loginSucceeded()
                 case .player: break
                 }
@@ -149,6 +165,101 @@ final class AppModel {
             else { return }
             artwork = image
             nowPlaying?.update(playback, artwork: image)
+        }
+    }
+
+    // MARK: - Library
+
+    private var needsLibrarySetup: Bool {
+        library == nil && !UserDefaults.standard.bool(forKey: SetupModel.librarySkippedKey)
+    }
+
+    private func showLibrarySetup() -> Phase {
+        setup.showLibraryStep(error: nil)
+        return .setup
+    }
+
+    private func connectLibrary(_ credentials: WebAPICredentials) {
+        let clientID = credentials.clientID
+        let api = WebAPIClient(
+            auth: SpotifyAuth(clientID: clientID),
+            tokens: credentials.tokens,
+            // Called after every token refresh (hourly) so a restart keeps working.
+            onTokensChanged: { tokens in
+                try? WebAPICredentials(clientID: clientID, tokens: tokens).save()
+            }
+        )
+        library = LibraryService(api: api)
+        refreshLiked(for: playback.track)
+    }
+
+    /// Called by library views when a request fails. An expired login (after
+    /// 6 months) sends the user back to setup step 4.
+    func handleLibraryError(_ error: any Error) {
+        log.error("Library request failed: \(error.localizedDescription, privacy: .public)")
+        if case .reauthorizationRequired = error as? WebAPIError {
+            library = nil
+            setup.showLibraryStep(error: error.localizedDescription)
+            phase = .setup
+        }
+    }
+
+    private func refreshLiked(for track: Track?) {
+        likeTask?.cancel()
+        isCurrentTrackLiked = nil
+        guard let library, let uri = track?.id else { return }
+        likeTask = Task { [weak self] in
+            do {
+                let liked = try await library.isLiked(uri)
+                guard !Task.isCancelled else { return }
+                self?.isCurrentTrackLiked = liked
+            } catch {
+                self?.handleLibraryError(error)
+            }
+        }
+    }
+
+    /// Updates the heart immediately and reverts it if Spotify refuses.
+    func toggleLike() {
+        guard let library, let uri = playback.track?.id, let liked = isCurrentTrackLiked else {
+            log.notice("Like ignored: library \(self.library != nil), liked state \(String(describing: self.isCurrentTrackLiked))")
+            return
+        }
+        isCurrentTrackLiked = !liked
+        Task {
+            do {
+                try await library.setLiked(!liked, trackURI: uri)
+                // Ask Spotify for the result, so the log shows what really happened.
+                let now = try await library.isLiked(uri)
+                if playback.track?.id == uri { isCurrentTrackLiked = now }
+                log.notice("\(liked ? "Unliked" : "Liked", privacy: .public) \(uri, privacy: .public); Spotify now reports liked = \(now)")
+                likedSongsVersion += 1
+            } catch {
+                if playback.track?.id == uri { isCurrentTrackLiked = liked }
+                handleLibraryError(error)
+            }
+        }
+    }
+
+    /// From the player when the library was skipped during setup.
+    func openLibrarySetup() {
+        setup.showLibraryStep(error: nil)
+        phase = .setup
+    }
+
+    /// Plays a playlist or album from the start.
+    func play(uri: String) {
+        send { try await $0.play(uri: uri) }
+    }
+
+    /// Plays `tracks[index]` and queues the next tracks of the list.
+    func play(tracks: [TrackSummary], startingAt index: Int) {
+        guard tracks.indices.contains(index) else { return }
+        let first = tracks[index].uri
+        let following = tracks.dropFirst(index + 1).prefix(Self.queuedFollowingTracks).map(\.uri)
+        send { source in
+            try await source.play(uri: first)
+            for uri in following { try await source.addToQueue(uri: uri) }
         }
     }
 
@@ -196,5 +307,13 @@ extension AppModel: SetupModel.Delegate {
 
     func setupIsLoggedIn() -> Bool {
         isLoggedIn
+    }
+
+    func setupHasLibrary() -> Bool {
+        library != nil || UserDefaults.standard.bool(forKey: SetupModel.librarySkippedKey)
+    }
+
+    func setupConnectLibrary(_ credentials: WebAPICredentials) {
+        connectLibrary(credentials)
     }
 }

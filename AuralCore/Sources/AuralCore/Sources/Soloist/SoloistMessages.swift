@@ -20,6 +20,7 @@ enum SoloistCommand: Sendable, Equatable {
     case setShuffle(Bool)
     case setRepeatContext(Bool)
     case setRepeatTrack(Bool)
+    case addToQueue(uri: String)
 
     /// Soloist has two independent repeat flags; Aural has one three-way mode.
     /// The flag that gets switched off is sent first, so both are never on at once.
@@ -51,6 +52,7 @@ extension SoloistCommand: Encodable {
         case .setShuffle: "set_shuffle"
         case .setRepeatContext: "set_repeat_context"
         case .setRepeatTrack: "set_repeat_track"
+        case .addToQueue: "add_to_queue"
         }
     }
 
@@ -60,6 +62,7 @@ extension SoloistCommand: Encodable {
         try container.encode(name, forKey: .command)
         switch self {
         case .play(let uri): try container.encodeIfPresent(uri, forKey: .uri)
+        case .addToQueue(let uri): try container.encode(uri, forKey: .uri)
         case .seek(let positionMs): try container.encode(positionMs, forKey: .positionMs)
         case .setVolume(let volume): try container.encode(volume, forKey: .volume)
         case .setShuffle(let enabled), .setRepeatContext(let enabled), .setRepeatTrack(let enabled):

@@ -4,7 +4,8 @@ import Observation
 import os
 
 /// State and actions of the guided first-run setup:
-/// 1. install Soloist, 2. enter the API key, 3. pair from the Spotify app.
+/// 1. install Soloist, 2. enter the API key, 3. pair from the Spotify app,
+/// 4. connect the library (Spotify Web API login).
 @MainActor
 @Observable
 final class SetupModel {
@@ -16,10 +17,12 @@ final class SetupModel {
         func setupStopSoloist() async
         func setupFinished()
         func setupIsLoggedIn() -> Bool
+        func setupHasLibrary() -> Bool
+        func setupConnectLibrary(_ credentials: WebAPICredentials)
     }
 
     enum Step: Int, CaseIterable, Comparable {
-        case install, key, pair
+        case install, key, pair, library
         static func < (lhs: Step, rhs: Step) -> Bool { lhs.rawValue < rhs.rawValue }
     }
 
@@ -39,6 +42,11 @@ final class SetupModel {
     private(set) var localNetwork: LocalNetworkAccess.Status = .unknown
     /// Shown when pairing takes long: the key may be wrong or the network blocked.
     private(set) var showPairingHint = false
+
+    // Step 4
+    var clientIDText = ""
+    private(set) var isSigningIn = false
+    private(set) var libraryError: String?
 
     @ObservationIgnored weak var delegate: Delegate?
     @ObservationIgnored private let installer: SoloistInstaller
@@ -137,8 +145,52 @@ final class SetupModel {
         pendingKey = nil
         keyText = ""
         stopPairingWatch()
+        if delegate?.setupHasLibrary() == true {
+            delegate?.setupFinished()
+        } else {
+            showLibraryStep(error: nil)
+        }
+    }
+
+    // MARK: - Step 4: library
+
+    /// Also used when the Web API login expired (after 6 months) and the user must sign in again.
+    func showLibraryStep(error: String?) {
+        stopPairingWatch()
+        libraryError = error
+        if clientIDText.isEmpty, let saved = WebAPICredentials.load() { clientIDText = saved.clientID }
+        step = .library
+    }
+
+    /// Opens the browser for the Spotify login and waits for the redirect.
+    func signInToLibrary(openURL: @escaping @Sendable (URL) async -> Void) async {
+        let clientID = clientIDText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clientID.count >= 16, clientID.allSatisfy({ $0.isLetter || $0.isNumber }) else {
+            libraryError = "Paste the Client ID from your app's page in the Spotify dashboard."
+            return
+        }
+        libraryError = nil
+        isSigningIn = true
+        defer { isSigningIn = false }
+        do {
+            let tokens = try await SpotifyAuth(clientID: clientID).login(openURL: openURL)
+            let credentials = WebAPICredentials(clientID: clientID, tokens: tokens)
+            try credentials.save()
+            delegate?.setupConnectLibrary(credentials)
+            delegate?.setupFinished()
+        } catch {
+            log.error("Library sign-in failed: \(error.localizedDescription, privacy: .public)")
+            libraryError = error.localizedDescription
+        }
+    }
+
+    /// The library is optional: the player works without it.
+    func skipLibrary() {
+        UserDefaults.standard.set(true, forKey: Self.librarySkippedKey)
         delegate?.setupFinished()
     }
+
+    static let librarySkippedKey = "librarySetupSkipped"
 
     /// Spotify refused the pairing: the key is invalid. Back to step 2.
     func loginRejected() {

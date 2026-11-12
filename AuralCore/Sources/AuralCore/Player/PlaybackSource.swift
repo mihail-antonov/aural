@@ -17,4 +17,6 @@ public protocol PlaybackSource: Sendable {
     func setVolume(_ volume: Int) async throws
     func setShuffle(_ enabled: Bool) async throws
     func setRepeat(_ mode: RepeatMode) async throws
+    /// Adds a track to the end of the queue.
+    func addToQueue(uri: String) async throws
 }

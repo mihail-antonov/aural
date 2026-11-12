@@ -1,3 +1,4 @@
+import AppKit
 import AuralCore
 import SwiftUI
 
@@ -19,10 +20,13 @@ struct SetupView: View {
             SetupStepRow(number: 3, title: "Pair your phone", step: .pair, current: setup.step) {
                 PairStepView(setup: setup)
             }
+            SetupStepRow(number: 4, title: "Connect your library", step: .library, current: setup.step) {
+                LibraryStepView(setup: setup)
+            }
             Spacer(minLength: 0)
         }
         .padding(24)
-        .frame(width: 380, height: 520, alignment: .topLeading)
+        .frame(width: 400, height: 620, alignment: .topLeading)
     }
 }
 
@@ -160,6 +164,72 @@ private struct PairStepView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Enter a different key") { setup.showKeyStep(error: nil) }
                     .buttonStyle(.link)
+            }
+        }
+    }
+}
+
+// MARK: - Step 4
+
+private struct LibraryStepView: View {
+    @Bindable var setup: SetupModel
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("To show your playlists, Liked Songs and albums and to search, Aural uses the Spotify Web API through your own free developer app.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Open Spotify for Developers") { openURL(SpotifyAuth.dashboardURL) }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Create an app, tick **Web API**, and add this redirect URI:")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text(SpotifyAuth.redirectURI)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                    Button("Copy", systemImage: "doc.on.doc") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(SpotifyAuth.redirectURI, forType: .string)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                }
+                Text("Then copy the app's **Client ID**.").font(.callout)
+            }
+
+            TextField("Paste the Client ID", text: $setup.clientIDText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(setup.isSigningIn)
+
+            HStack {
+                Button("Sign in with Spotify", action: signIn)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(setup.clientIDText.isEmpty || setup.isSigningIn)
+                if setup.isSigningIn {
+                    ProgressView().controlSize(.small)
+                    Text("Finish in your browser…").font(.callout).foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = setup.libraryError {
+                Text(error).font(.callout).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button("Skip for now") { setup.skipLibrary() }
+                .buttonStyle(.link)
+        }
+    }
+
+    private func signIn() {
+        Task {
+            await setup.signInToLibrary { url in
+                await MainActor.run { _ = NSWorkspace.shared.open(url) }
             }
         }
     }

@@ -13,6 +13,13 @@ struct AuralApp: App {
                 .environment(appDelegate.model)
         }
         .windowResizability(.contentSize)
+
+        // Plain library window for Stage 3; the designed panel comes in Stage 4.
+        Window("Library", id: "library") {
+            LibraryView()
+                .environment(appDelegate.model)
+        }
+        .defaultSize(width: 380, height: 560)
     }
 }
 
@@ -22,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `AsyncImage` uses the shared URL cache, which by default also keeps
+        // downloaded images in memory. Keep them on disk only (capped).
+        URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 20 * 1024 * 1024)
         Task { await model.launch() }
     }
 
