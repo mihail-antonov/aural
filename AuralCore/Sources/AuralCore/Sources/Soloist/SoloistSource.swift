@@ -12,6 +12,9 @@ public actor SoloistSource: PlaybackSource {
     private var connection: SoloistConnection?
     private var listenTask: Task<Void, Never>?
     private var state = PlaybackState()
+    /// `entity_type` of the current context (`album`, `playlist`, `track`, …).
+    private var contextType: String?
+    private var history = SoloistHistory()
 
     public init(configuration: SoloistConfiguration = SoloistConfiguration()) {
         (events, continuation) = AsyncStream.makeStream(
@@ -82,14 +85,32 @@ public actor SoloistSource: PlaybackSource {
             continuation.yield(.error(message))
         case .unknown(let type):
             Log.soloist.debug("Ignoring unknown Soloist event \(type, privacy: .public)")
+        case .playbackState(let snapshot):
+            contextType = snapshot.context?.entityType
+        case .contextChanged(let context):
+            contextType = context?.entityType
         default:
             break
         }
 
         let newState = state.applying(event)
+        if let uri = newState.track?.id, uri != state.track?.id { history.trackStarted(uri) }
         if newState != state {
             state = newState
             continuation.yield(.stateChanged(newState))
+        }
+
+        if case .queueChanged(let upcoming) = event {
+            let requeue = history.tracksToRequeue(upcoming: upcoming, currentURI: state.track?.id)
+            if !requeue.isEmpty { Task { await addToQueue(requeue) } }
+        }
+    }
+
+    private func addToQueue(_ uris: [String]) async {
+        do {
+            for uri in uris { try await send(.addToQueue(uri: uri)) }
+        } catch {
+            Log.soloist.error("Re-queueing after previous failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -99,7 +120,16 @@ public actor SoloistSource: PlaybackSource {
     public func resume() async throws { try await send(.play(uri: nil)) }
     public func pause() async throws { try await send(.pause) }
     public func next() async throws { try await send(.skipNext) }
-    public func previous() async throws { try await send(.skipPrevious) }
+    /// Like Spotify: restarts the track after 3 s, otherwise goes to the track
+    /// that played before (see `SoloistHistory`).
+    public func previous() async throws {
+        let positionMs = state.position.current(durationMs: state.track?.durationMs)
+        switch history.previous(currentURI: state.track?.id, positionMs: positionMs, contextType: contextType) {
+        case .skipInContext: try await send(.skipPrevious)
+        case .restart: try await send(.seek(positionMs: 0))
+        case .play(let uri): try await send(.play(uri: uri))
+        }
+    }
     public func seek(toMs positionMs: Int) async throws { try await send(.seek(positionMs: max(0, positionMs))) }
     public func setVolume(_ volume: Int) async throws { try await send(.setVolume(min(100, max(0, volume)))) }
     public func setShuffle(_ enabled: Bool) async throws { try await send(.setShuffle(enabled)) }

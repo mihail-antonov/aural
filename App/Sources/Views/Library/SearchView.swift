@@ -12,44 +12,56 @@ struct SearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Search Spotify", text: $text)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
+            // Rounded search field on glass, like the iOS search bar.
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.6))
+                TextField("Search Spotify", text: $text)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .glassEffect(.regular, in: .capsule)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
 
             List {
                 if !results.tracks.isEmpty {
-                    Section("Tracks") {
+                    Section {
                         ForEach(Array(results.tracks.enumerated()), id: \.element.id) { index, track in
                             Button { model.play(tracks: results.tracks, startingAt: index) } label: { TrackRow(track: track) }
                                 .buttonStyle(.plain)
+                                .libraryRow()
                         }
-                    }
+                    } header: { SearchSectionHeader(title: "Songs") }
                 }
                 if !results.artists.isEmpty {
-                    Section("Artists") {
+                    Section {
                         ForEach(results.artists) { artist in
                             NavigationLink(value: artist) { ArtistRow(artist: artist) }
+                                .libraryRow()
                         }
-                    }
+                    } header: { SearchSectionHeader(title: "Artists") }
                 }
                 if !results.albums.isEmpty {
-                    Section("Albums") {
+                    Section {
                         ForEach(results.albums) { album in
                             NavigationLink(value: album) { AlbumRow(album: album) }
+                                .libraryRow()
                         }
-                    }
+                    } header: { SearchSectionHeader(title: "Albums") }
                 }
                 if !results.playlists.isEmpty {
-                    Section("Playlists") {
+                    Section {
                         ForEach(results.playlists) { playlist in
                             NavigationLink(value: playlist) { PlaylistRow(playlist: playlist) }
+                                .libraryRow()
                         }
-                    }
+                    } header: { SearchSectionHeader(title: "Playlists") }
                 }
-                if isSearching { ProgressView().frame(maxWidth: .infinity) }
-                if let error { Text(error).font(.caption).foregroundStyle(.red) }
+                if isSearching { ProgressView().controlSize(.small).frame(maxWidth: .infinity).libraryRow() }
+                if let error { Text(error).font(.caption).foregroundStyle(.red).libraryRow() }
             }
+            .libraryList()
         }
         // `task(id:)` restarts whenever the text changes and cancels the
         // previous run, which gives us a debounce for free.
@@ -69,5 +81,18 @@ struct SearchView: View {
                 model.handleLibraryError(error)
             }
         }
+    }
+}
+
+/// iOS-style section title: large, bold, left-aligned, not uppercased.
+private struct SearchSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(.white)
+            .textCase(nil)
+            .padding(.top, 8)
     }
 }

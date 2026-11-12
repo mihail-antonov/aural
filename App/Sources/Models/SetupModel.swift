@@ -48,6 +48,10 @@ final class SetupModel {
     private(set) var isSigningIn = false
     private(set) var libraryError: String?
 
+    /// True when a step was opened from the player's settings (not first run):
+    /// the step then offers "Cancel" to go back to the player unchanged.
+    private(set) var isChangingSettings = false
+
     @ObservationIgnored weak var delegate: Delegate?
     @ObservationIgnored private let installer: SoloistInstaller
     /// The key being tried. Saved to the Keychain only after pairing succeeds,
@@ -87,6 +91,31 @@ final class SetupModel {
         self.pendingKey = pendingKey
         step = .pair
         startPairingWatch()
+    }
+
+    private func finish() {
+        isChangingSettings = false
+        delegate?.setupFinished()
+    }
+
+    /// Opens one step from the player's settings menu.
+    func beginSettingsChange(_ step: Step) {
+        isChangingSettings = true
+        switch step {
+        case .key: showKeyStep(error: nil)
+        case .library: showLibraryStep(error: nil)
+        case .install, .pair: break
+        }
+    }
+
+    /// Back to the player without changing anything.
+    func cancelSettingsChange() {
+        stopPairingWatch()
+        isChangingSettings = false
+        keyText = ""
+        keyError = nil
+        libraryError = nil
+        finish()
     }
 
     // MARK: - Step 1: install
@@ -146,7 +175,7 @@ final class SetupModel {
         keyText = ""
         stopPairingWatch()
         if delegate?.setupHasLibrary() == true {
-            delegate?.setupFinished()
+            finish()
         } else {
             showLibraryStep(error: nil)
         }
@@ -177,7 +206,7 @@ final class SetupModel {
             let credentials = WebAPICredentials(clientID: clientID, tokens: tokens)
             try credentials.save()
             delegate?.setupConnectLibrary(credentials)
-            delegate?.setupFinished()
+            finish()
         } catch {
             log.error("Library sign-in failed: \(error.localizedDescription, privacy: .public)")
             libraryError = error.localizedDescription
@@ -187,7 +216,7 @@ final class SetupModel {
     /// The library is optional: the player works without it.
     func skipLibrary() {
         UserDefaults.standard.set(true, forKey: Self.librarySkippedKey)
-        delegate?.setupFinished()
+        finish()
     }
 
     static let librarySkippedKey = "librarySetupSkipped"

@@ -76,6 +76,9 @@ public struct PlaybackState: Sendable, Equatable {
     public var availableActions: Set<PlaybackAction> = []
     /// True when this device is the one Spotify is playing on.
     public var isActiveDevice = false
+    /// Name of what is playing, e.g. a playlist or album name. Nil for a
+    /// single track or when the source does not know it.
+    public var contextName: String?
 
     public init() {}
 }

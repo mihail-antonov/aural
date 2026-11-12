@@ -125,8 +125,15 @@ public actor WebAPIClient {
             return try await perform(method, path, query: query, isRetry: true)
         case 429:
             throw .rateLimited
+        case 502...504 where !isRetry:
+            // Spotify's servers are briefly unavailable (seen when several
+            // library requests run at once). Every Aural request is safe to
+            // repeat (GET, or PUT/DELETE of the same items), so retry once.
+            try? await Task.sleep(for: .seconds(1))
+            return try await perform(method, path, query: query, isRetry: true)
         default:
-            throw .http(status: status, message: Self.message(from: data))
+            let message = Self.message(from: data)
+            throw .http(status: status, message: message.isEmpty ? HTTPURLResponse.localizedString(forStatusCode: status) : message)
         }
     }
 

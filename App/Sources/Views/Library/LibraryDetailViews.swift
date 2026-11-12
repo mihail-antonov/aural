@@ -44,7 +44,7 @@ struct AlbumDetailView: View {
             }
             if let tracks {
                 PagedListView(list: tracks) { index, track in
-                    Button { model.play(tracks: tracks.items, startingAt: index) } label: { TrackRow(track: track, showsArtwork: false) }
+                    Button { model.play(tracks: tracks.items, startingAt: index) } label: { TrackRow(track: track, number: index + 1) }
                         .buttonStyle(.plain)
                 }
             }

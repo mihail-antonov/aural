@@ -16,6 +16,7 @@ extension PlaybackState {
             if let volume = snapshot.volume { state.volume = volume }
             if let isActive = snapshot.isActive { state.isActiveDevice = isActive }
             if let options = snapshot.options { state.apply(options) }
+            state.contextName = Self.contextName(snapshot.context)
             state.availableActions = Set((snapshot.availableActions ?? [:]).keys.compactMap(PlaybackAction.init(soloist:)))
         case .trackChanged(let item):
             state.track = item.flatMap(Track.init(soloist:))
@@ -29,10 +30,19 @@ extension PlaybackState {
             state.apply(options)
         case .deviceChanged(let isActive), .authState(_, let isActive):
             state.isActiveDevice = isActive
-        case .queueChanged, .contextChanged, .commandResult, .error, .unknown:
+        case .contextChanged(let context):
+            state.contextName = Self.contextName(context)
+        case .queueChanged, .commandResult, .error, .unknown:
             break
         }
         return state
+    }
+
+    /// Playlist / album name. A single track as context has no useful name.
+    private static func contextName(_ context: SoloistWire.Entity?) -> String? {
+        guard let context, context.entityType != "track", context.entityType != "unknown" else { return nil }
+        let name = context.decorations?.identity?.name
+        return name?.isEmpty == false ? name : nil
     }
 
     private mutating func apply(_ options: SoloistWire.Options) {
@@ -93,11 +103,11 @@ extension Track {
         )
     }
 
-    /// The mini player shows ~110 pt art (220 px on Retina). Soloist's
-    /// `default` size is ~300 px, so prefer it over `large` (640 px) to keep
-    /// downloads and decoded images small.
+    /// The player shows the cover at 225 pt (450 px on Retina). Soloist's
+    /// `default` size is ~300 px, which would look soft, so prefer `large`
+    /// (640 px); the app downscales it to 450 px when decoding.
     private static func artworkURL(from covers: [SoloistWire.Cover]) -> URL? {
-        let preferred = ["default", "large", "xlarge", "small"]
+        let preferred = ["large", "default", "xlarge", "small"]
         for size in preferred {
             if let cover = covers.first(where: { $0.size == size }), let url = URL(string: cover.url) {
                 return url

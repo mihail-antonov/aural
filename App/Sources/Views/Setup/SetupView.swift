@@ -111,6 +111,11 @@ private struct KeyStepView: View {
                 Button("Continue", action: submit)
                     .buttonStyle(.borderedProminent)
                     .disabled(setup.keyText.isEmpty || setup.isStartingSoloist)
+                if setup.isChangingSettings {
+                    Button("Cancel") { setup.cancelSettingsChange() }
+                        .keyboardShortcut(.cancelAction)
+                        .disabled(setup.isStartingSoloist)
+                }
                 if setup.isStartingSoloist { ProgressView().controlSize(.small) }
             }
 
@@ -221,8 +226,14 @@ private struct LibraryStepView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button("Skip for now") { setup.skipLibrary() }
-                .buttonStyle(.link)
+            if setup.isChangingSettings {
+                Button("Cancel") { setup.cancelSettingsChange() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(setup.isSigningIn)
+            } else {
+                Button("Skip for now") { setup.skipLibrary() }
+                    .buttonStyle(.link)
+            }
         }
     }
 

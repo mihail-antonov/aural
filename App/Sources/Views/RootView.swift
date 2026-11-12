@@ -13,7 +13,7 @@ struct RootView: View {
             case .setup:
                 SetupView(setup: model.setup)
             case .player:
-                PlayerView()
+                MainView()
             }
         }
         .animation(.default, value: model.phase)

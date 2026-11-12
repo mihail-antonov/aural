@@ -24,9 +24,9 @@ final class PagedList<Item: Sendable & Identifiable> {
 
     var canLoadMore: Bool { nextOffset != nil && !isLoading }
 
-    /// Loads the first page once.
+    /// Loads the first page once, or again if that failed.
     func loadIfNeeded() async {
-        guard !hasLoaded else { return }
+        guard !hasLoaded || (error != nil && items.isEmpty) else { return }
         await loadMore()
     }
 
@@ -40,6 +40,9 @@ final class PagedList<Item: Sendable & Identifiable> {
             nextOffset = page.nextOffset
             error = nil
         } catch {
+            // Switching tabs cancels the view's task and with it the request.
+            // That is not an error: the list simply loads when shown again.
+            if Task.isCancelled { return }
             self.error = error
             onError(error)
         }

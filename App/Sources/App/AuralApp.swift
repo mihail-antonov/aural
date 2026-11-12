@@ -13,13 +13,8 @@ struct AuralApp: App {
                 .environment(appDelegate.model)
         }
         .windowResizability(.contentSize)
-
-        // Plain library window for Stage 3; the designed panel comes in Stage 4.
-        Window("Library", id: "library") {
-            LibraryView()
-                .environment(appDelegate.model)
-        }
-        .defaultSize(width: 380, height: 560)
+        // No title bar: the player's background runs under the window buttons.
+        .windowStyle(.hiddenTitleBar)
     }
 }
 

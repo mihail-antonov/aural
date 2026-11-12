@@ -84,9 +84,9 @@ enum SoloistEvent: Sendable, Equatable {
     case volumeChanged(Int)
     case optionsChanged(SoloistWire.Options)
     case deviceChanged(isActive: Bool)
-    /// Queue contents are not decoded yet (Stage 5).
-    case queueChanged
-    case contextChanged
+    /// Upcoming queue entries (at most 10 in broadcasts).
+    case queueChanged(upcoming: [SoloistWire.QueueEntry])
+    case contextChanged(SoloistWire.Entity?)
     case commandResult(command: String)
     case error(message: String)
     /// A message type this version of Aural does not know. Ignored, not an error.
@@ -117,9 +117,9 @@ enum SoloistEvent: Sendable, Equatable {
         case "device_changed":
             return .deviceChanged(isActive: try decoder.decode(SoloistWire.DeviceChanged.self, from: data).isActive)
         case "queue_changed":
-            return .queueChanged
+            return .queueChanged(upcoming: try decoder.decode(SoloistWire.QueueChanged.self, from: data).upcoming ?? [])
         case "context_changed":
-            return .contextChanged
+            return .contextChanged(try decoder.decode(SoloistWire.ContextChanged.self, from: data).context)
         case "command_result":
             return .commandResult(command: try decoder.decode(SoloistWire.CommandResult.self, from: data).command)
         case "error":
@@ -152,12 +152,13 @@ enum SoloistWire {
         let volume: Int?
         let isActive: Bool?
         let options: Options?
+        let context: Entity?
         /// Keys are action names (`pause`, `skip_next`, …); the values carry
         /// optional details such as `step_ms`, which Aural does not need.
         let availableActions: [String: IgnoredValue]?
 
         enum CodingKeys: String, CodingKey {
-            case status, item, position, volume, options
+            case status, item, position, volume, options, context
             case isActive = "is_active"
             case availableActions = "available_actions"
         }
@@ -242,6 +243,18 @@ enum SoloistWire {
     }
 
     struct TrackChanged: Decodable { let item: Entity? }
+    struct ContextChanged: Decodable { let context: Entity? }
+
+    /// Only the upcoming entries are needed; `previous` is ignored.
+    struct QueueChanged: Decodable { let upcoming: [QueueEntry]? }
+
+    struct QueueEntry: Decodable, Sendable, Equatable {
+        /// `context`, `queue` (added with `add_to_queue`) or `autoplay`.
+        let source: String
+        let item: QueueItem
+    }
+
+    struct QueueItem: Decodable, Sendable, Equatable { let uri: String? }
     struct PlaybackChanged: Decodable { let status: String }
     struct PositionSync: Decodable { let position: Position }
     struct VolumeChanged: Decodable { let volume: Int }

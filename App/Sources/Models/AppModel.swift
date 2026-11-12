@@ -22,6 +22,9 @@ final class AppModel {
     private(set) var phase: Phase = .starting
     private(set) var playback = PlaybackState()
     private(set) var artwork: CGImage?
+    /// Average color of the current cover, for the tinted background. Kept
+    /// from the previous track until the new cover has loaded.
+    private(set) var coverColor: ArtworkColor?
     private(set) var isLoggedIn = false
     /// Shown in the player when something went wrong (e.g. Soloist stopped).
     private(set) var problem: String?
@@ -32,6 +35,18 @@ final class AppModel {
     private(set) var isCurrentTrackLiked: Bool?
     /// Increases after every like/unlike so the Liked Songs list can reload.
     private(set) var likedSongsVersion = 0
+
+    /// Pages of the main window. The player's list button opens the library,
+    /// its search button the search; their back chevron (or Esc) returns to
+    /// the player.
+    enum Page {
+        case player, library, search
+    }
+
+    var page: Page = .player
+
+    /// Installed Soloist version, for the `…` menu.
+    var soloistVersion: SoloistVersion? { setup.installedVersion }
 
     let setup: SetupModel
 
@@ -48,8 +63,9 @@ final class AppModel {
 
     private let log = Logger(subsystem: "app.aural", category: "app")
 
-    /// Cover size in the player (110 pt) at 2× plus margin for the Now Playing widget.
-    private static let artworkPixelSize = 300
+    /// Cover size in the player (225 pt) at 2×. One decoded image of this
+    /// size is ~0.8 MB; only the current cover is kept in memory.
+    private static let artworkPixelSize = 450
 
     init() {
         setup = SetupModel(installer: SoloistInstaller(executableURL: configuration.executableURL))
@@ -164,6 +180,7 @@ final class AppModel {
                   !Task.isCancelled, let self
             else { return }
             artwork = image
+            coverColor = ArtworkLoader.averageColor(of: image)
             nowPlaying?.update(playback, artwork: image)
         }
     }
@@ -241,15 +258,24 @@ final class AppModel {
         }
     }
 
-    /// From the player when the library was skipped during setup.
+    /// Settings in the `…` menu, and "Connect your library" when it was
+    /// skipped: the setup step for the Spotify app's Client ID (Web API).
     func openLibrarySetup() {
-        setup.showLibraryStep(error: nil)
+        setup.beginSettingsChange(.library)
         phase = .setup
     }
 
-    /// Plays a playlist or album from the start.
+    /// Settings in the `…` menu: enter a new Soloist API key. Playback keeps
+    /// running with the old key until the new one is submitted.
+    func openAPIKeySetup() {
+        setup.beginSettingsChange(.key)
+        phase = .setup
+    }
+
+    /// Plays a playlist or album from the start and shows the player.
     func play(uri: String) {
         send { try await $0.play(uri: uri) }
+        page = .player
     }
 
     /// Plays `tracks[index]` and queues the next tracks of the list.
@@ -261,6 +287,7 @@ final class AppModel {
             try await source.play(uri: first)
             for uri in following { try await source.addToQueue(uri: uri) }
         }
+        page = .player
     }
 
     // MARK: - Commands
@@ -274,6 +301,24 @@ final class AppModel {
     }
 
     func next() { send { try await $0.next() } }
+
+    /// 0–100.
+    func setVolume(_ volume: Int) { send { try await $0.setVolume(volume) } }
+    func toggleShuffle() {
+        let enabled = !playback.shuffle
+        send { try await $0.setShuffle(enabled) }
+    }
+
+    /// off → context (playlist/album) → track → off.
+    func cycleRepeat() {
+        let next: RepeatMode = switch playback.repeatMode {
+        case .off: .context
+        case .context: .track
+        case .track: .off
+        }
+        send { try await $0.setRepeat(next) }
+    }
+
     func previous() { send { try await $0.previous() } }
     func seek(toMs positionMs: Int) { send { try await $0.seek(toMs: positionMs) } }
 

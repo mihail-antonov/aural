@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import AuralCore
@@ -25,7 +26,7 @@ struct SoloistMappingTests {
         #expect(track.artists == ["First Artist", "Second Artist"])
         #expect(track.album == "Test Album")
         #expect(track.durationMs == 194768)
-        #expect(track.artworkURL == URL(string: "https://example.com/cover-default.jpg"))
+        #expect(track.artworkURL == URL(string: "https://example.com/cover-large.jpg"))
     }
 
     @Test func partialEventsUpdateOnlyTheirField() throws {
@@ -43,7 +44,7 @@ struct SoloistMappingTests {
 
     @Test func eventsWithoutStateChangeLeaveStateUntouched() throws {
         let state = try snapshot()
-        #expect(state.applying(.queueChanged) == state)
+        #expect(state.applying(.queueChanged(upcoming: [])) == state)
         #expect(state.applying(.commandResult(command: "pause")) == state)
         #expect(state.applying(.unknown(type: "x")) == state)
     }
@@ -71,5 +72,25 @@ struct SoloistMappingTests {
         let state = PlaybackState().applying(.positionSync(.init(positionMs: 5_000, timestampMs: 1_000_000, speed: 1)))
         #expect(state.position.positionMs == 5_000)
         #expect(state.position.timestamp == Date(timeIntervalSince1970: 1_000))
+    }
+}
+
+struct ContextAndColorTests {
+    @Test func contextNameComesFromPlaylistOrAlbumContext() throws {
+        let event = try SoloistEvent.decode(from: Data(#"{"type":"context_changed","context":{"uri":"spotify:playlist:p","entity_type":"playlist","decorations":{"identity":{"name":"Road Trip"}}}}"#.utf8))
+        #expect(PlaybackState().applying(event).contextName == "Road Trip")
+
+        let single = try SoloistEvent.decode(from: Data(#"{"type":"context_changed","context":{"uri":"spotify:track:t","entity_type":"track","decorations":{}}}"#.utf8))
+        #expect(PlaybackState().applying(event).applying(single).contextName == nil)
+    }
+
+    @Test func averageColorOfASolidImage() throws {
+        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 1, green: 0.5, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        let image = try #require(context.makeImage())
+        let color = try #require(ArtworkLoader.averageColor(of: image))
+        #expect(abs(color.red - 1) < 0.02 && abs(color.green - 0.5) < 0.02 && color.blue < 0.02)
     }
 }

@@ -22,6 +22,15 @@ public struct AlbumSummary: Sendable, Identifiable, Hashable {
     public let artists: [String]
     public let imageURL: URL?
     public let trackCount: Int?
+
+    public init(id: String, uri: String, name: String, artists: [String], imageURL: URL?, trackCount: Int?) {
+        self.id = id
+        self.uri = uri
+        self.name = name
+        self.artists = artists
+        self.imageURL = imageURL
+        self.trackCount = trackCount
+    }
 }
 
 public struct ArtistSummary: Sendable, Identifiable, Hashable {
