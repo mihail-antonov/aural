@@ -127,14 +127,20 @@ Confirmed in Stage 0 (Soloist 1.3.10, docs + hands-on test):
 
 **Expiry**
 - **Builds expire 90 days after their build date.** `soloist --version` prints e.g. `soloist 1.3.10.65 build 1794463304 (20261112) …`; expiry = the date in parentheses + 90 days. How Aural handles it: see "Soloist management in the app".
-- **The API key has no documented expiry.** The docs only say: if the key is revoked or replaced in the dashboard, restart Soloist with the new key; the key is separate from the stored session and is required at every startup. Treat it as valid until revoked, and let the user replace it from the app if Soloist rejects it (exact rejection behaviour still to be verified).
+- **The API key has no documented expiry.** The docs only say: if the key is revoked or replaced in the dashboard, restart Soloist with the new key; the key is separate from the stored session and is required at every startup. Treat it as valid until revoked, and let the user replace it from the app if Soloist rejects it.
+- **An invalid key is only detected at pairing (tested in Stage 2).** Soloist starts normally with any key (WebSocket up, "waiting for login", no error). When a Spotify app then tries to connect, the backend refuses (`session_access_denied`), the phone stays on "connecting…" and fails, Soloist prints one line `login failed: make sure --api-key is valid` to stdout, and **no WebSocket event is sent** (`auth_state` stays `logged_in: false`). Aural detects this line from Soloist's output (log text is not a stable API: keep the pattern in one place in `Sources/Soloist`) and also shows a hint if pairing does not complete within a reasonable time. Keys seen so far are 37 characters of `[A-Za-z0-9_]`; the format is undocumented, so only do a loose sanity check.
 
 **Soloist management in the app** (no terminal commands for the user, ever)
 - Aural manages its own Soloist install in `~/Library/Application Support/Aural/soloist/`. The executable path comes from **one place in AuralCore** and is never hard-coded elsewhere. It defaults to that path and allows an override (used by the probe and for a manual install).
 - Soloist's data directory (device identity, pairing session) stays separate from the executable (default `~/Library/Application Support/soloist/`), so the API key (Keychain) and the pairing session survive updates.
 - **Install and update from the app:** download the official macOS archive directly from Spotify's official download URL (`https://soloist-builds.spotifycdn.com/soloist_release_osx_arm64.tar.gz`) into a fresh temporary directory, extract it, **verify the code signature is `Developer ID Application: Spotify (2FNC3A47ZF)`** (Security framework, before the executable is ever run), then replace the old executable and restart Soloist. Spotify publishes no checksums, so the signature check is the integrity check. If the download or verification fails, fall back to opening the official downloads page.
 - **Expiry:** read the build date from `soloist --version` at startup. From 7 days before expiry, show a non-blocking notice with an "Update" button. On exit code `10`, show a clear screen with the same button.
-- **First run is a guided setup screen:** install Soloist → enter the API key (stored in Keychain) → pair from the Spotify app ("Open Spotify and choose <device name>"), including the Local Network permission step.
+- **First run is a guided setup screen (Stage 2):**
+  1. **Install Soloist** — one button: download from the official URL, verify the signature, install into Aural's folder. Skipped if a valid, unexpired install is already there.
+  2. **Get your key** — a button opens the Soloist page in the Spotify for Developers dashboard; a field to paste the key; Aural starts Soloist with it and stores it in the Keychain.
+  3. **Pair your phone** — "Open Spotify on your phone and choose Aural from the devices." Includes the Local Network permission. Pairing is detected from `auth_state` and setup continues automatically. An invalid key is reported here (see above) with a way back to step 2.
+  4. Web API login for the library is added in Stage 3.
+- The user never needs a terminal command.
 
 **WebSocket API**
 - JSON text frames. Commands: `{"type":"command","command":"<name>", …}`. Queries: `get_auth_state`, `get_state`, `get_queue {limit}`. Controls: `play {uri?}`, `pause`, `skip_next`, `skip_prev`, `seek {position_ms}`, `set_volume {volume}`, `set_shuffle {enabled}`, `set_repeat_context {enabled}`, `set_repeat_track {enabled}`, `add_to_queue {uri}`, `activate`, `deactivate`.
@@ -175,12 +181,12 @@ Work **one stage at a time**. Each stage must end with something that runs. Do n
 
 0. **Soloist research (no app code).** Read Soloist's docs (overview, authentication, features, WebSocket API, `soloist ctl`, terms). Answer: can it load a track / album / playlist URI? Queue, shuffle, repeat, seek, volume, autoplay? What events and metadata does it send? Does first use need pairing from the official Spotify app, or can it start with a stored session? Install it on the owner's Mac (the owner generates the API key), run it, play a track, measure its memory. Check how library and search would work. **Report findings and propose updates to this file before writing code.**
 1. **Soloist control prototype.** AuralCore with the Soloist source: launch Soloist, connect over WebSocket, play a URI, receive and log events. Driven from a tiny test executable or unit/integration test.
-2. **Minimal app.** XcodeGen project, a plain SwiftUI window showing the current track with play/pause/next. Now Playing and media keys working.
-3. **Library and search.** Playlists, Liked Songs, saved albums, search, and the like button's save/remove — all through the Web API (OAuth PKCE), since Soloist provides no library, search or like. Confirm each endpoint with a real request first. Remember `play` cannot take artist URIs.
+2. **Minimal app + guided setup.** XcodeGen project; the guided first-run setup (install Soloist, API key, pairing — see "Soloist management in the app"); a plain SwiftUI window showing the current track with play/pause/next. Now Playing and media keys working.
+3. **Library and search.** Web API login as setup step 4. Playlists, Liked Songs, saved albums, search, and the like button's save/remove — all through the Web API (OAuth PKCE), since Soloist provides no library, search or like. Confirm each endpoint with a real request first. Remember `play` cannot take artist URIs.
 4. **Full UI per design.** The mini player as in `docs/design.png`, with Liquid Glass; the playlists button and panel (prototype 2 options first).
 5. **Queue, shuffle, repeat, autoplay, like button.**
 6. **Demo mode** with the Local source.
-7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (guided first-run setup, install/update with signature check, expiry notice and exit-code-10 screen, replacing the API key — see "Soloist management in the app"), app icon, README, screenshots and a short video recorded in demo mode.
+7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (update flow, expiry notice and exit-code-10 screen with "Update" button, a settings screen to replace the API key — see "Soloist management in the app"; first-run setup and install are done in Stage 2), app icon, README, screenshots and a short video recorded in demo mode.
 
 Optional later stages (only if the owner asks): menu bar mode; global keyboard shortcuts.
 
