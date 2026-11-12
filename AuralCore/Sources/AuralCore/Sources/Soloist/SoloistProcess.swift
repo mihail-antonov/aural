@@ -1,0 +1,206 @@
+import Darwin
+import Foundation
+import os
+
+/// Starts and stops the Soloist daemon, or attaches to one that is already
+/// running with the same data directory.
+///
+/// An `actor` serialises access to its state (like a single-threaded object):
+/// callers `await` its methods, so the `Process` is never touched from two
+/// threads at once.
+actor SoloistProcess {
+    private let configuration: SoloistConfiguration
+    /// Only set when Aural launched Soloist itself (not when attached).
+    private var process: Process?
+    /// Shared with `Process.terminationHandler`, which runs on a background
+    /// thread outside the actor, so it needs its own lock.
+    private let exitState = OSAllocatedUnfairLock(initialState: ExitState())
+
+    private struct ExitState {
+        var exitError: SoloistError?
+        var isStopping = false
+    }
+
+    init(configuration: SoloistConfiguration) {
+        self.configuration = configuration
+    }
+
+    /// Makes sure Soloist is running and returns how it was started and its WebSocket URL.
+    /// - Parameter onUnexpectedExit: called if a Soloist that Aural launched
+    ///   exits on its own later (not when `stop()` is called).
+    func start(
+        apiKey: String,
+        onUnexpectedExit: @escaping @Sendable (SoloistError) -> Void
+    ) async throws(SoloistError) -> (SoloistStartMode, URL) {
+        if let pid = runningInstancePID() {
+            Log.soloist.info("Attaching to running Soloist (pid \(pid))")
+            guard let url = webSocketURL(writtenAfter: nil) else { throw .runningWithoutWebSocket }
+            return (.attached(pid: pid), url)
+        }
+        let url = try await launch(apiKey: apiKey, onUnexpectedExit: onUnexpectedExit)
+        return (.launched, url)
+    }
+
+    /// Stops Soloist if Aural launched it. An attached instance keeps running.
+    func stop() async {
+        guard let process else { return }
+        self.process = nil
+        exitState.withLock { $0.isStopping = true }
+        guard process.isRunning else { return }
+
+        // SIGTERM lets Soloist shut down cleanly (it removes ws.port / ws.addr).
+        process.terminate()
+        for _ in 0..<50 where process.isRunning {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if process.isRunning {
+            Log.soloist.error("Soloist did not stop in 5 s, killing it")
+            kill(process.processIdentifier, SIGKILL)
+        }
+        Log.soloist.info("Soloist stopped")
+    }
+
+    // MARK: - Launch
+
+    private func launch(
+        apiKey: String,
+        onUnexpectedExit: @escaping @Sendable (SoloistError) -> Void
+    ) async throws(SoloistError) -> URL {
+        let executable = configuration.executableURL
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            throw .executableNotFound(path: executable.path)
+        }
+
+        let process = Process()
+        process.executableURL = executable
+        // The API key can only be passed as an argument (Soloist has no env var
+        // or config file for it). It is never logged.
+        process.arguments = [
+            "--device-name", configuration.deviceName,
+            "--api-key", apiKey,
+            "--data-dir", configuration.dataDirectory.path,
+            "--ws", "127.0.0.1:0", // loopback only: the API has no authentication
+            "--cache-size", String(configuration.cacheSizeMB),
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = Self.forwardingPipe()
+        process.standardError = process.standardOutput
+
+        exitState.withLock { $0 = ExitState() }
+        let exitState = self.exitState
+        process.terminationHandler = { finished in
+            let error = Self.error(for: finished)
+            let wasStopping = exitState.withLock { state in
+                state.exitError = error
+                return state.isStopping
+            }
+            if !wasStopping {
+                Log.soloist.error("Soloist ended unexpectedly: \(error.localizedDescription, privacy: .public)")
+                onUnexpectedExit(error)
+            }
+        }
+
+        // ws.port may be left over from an earlier crash, so only a file
+        // written after this launch counts. 1 s of slack for file-system timestamps.
+        let launchDate = Date().addingTimeInterval(-1)
+        do {
+            try process.run()
+        } catch {
+            throw .launchFailed(error.localizedDescription)
+        }
+        self.process = process
+        Log.soloist.info("Launched Soloist (pid \(process.processIdentifier))")
+
+        let deadline = ContinuousClock.now + configuration.startTimeout
+        while ContinuousClock.now < deadline {
+            if let exitError = exitState.withLock({ $0.exitError }) {
+                self.process = nil
+                throw exitError
+            }
+            if let url = webSocketURL(writtenAfter: launchDate) {
+                return url
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        await stop()
+        throw .startTimeout
+    }
+
+    /// `terminationStatus` is an exit code for a normal exit, but the signal
+    /// number when the process was killed, so check `terminationReason` first.
+    private static func error(for finished: Process) -> SoloistError {
+        let status = finished.terminationStatus
+        switch finished.terminationReason {
+        case .uncaughtSignal: return .killed(signal: status)
+        case .exit: return status == 10 ? .buildExpired : .exited(code: status)
+        @unknown default: return .exited(code: status)
+        }
+    }
+
+    /// A pipe whose output is forwarded line by line to the unified log.
+    /// The pipe must be drained: if nobody reads it, its buffer fills up and
+    /// Soloist blocks on its next log line.
+    private static func forwardingPipe() -> Pipe {
+        let pipe = Pipe()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil // end of file: Soloist exited
+                return
+            }
+            for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline) {
+                // `.private`: lines can contain the account's user name.
+                Log.soloistOutput.debug("\(line, privacy: .private)")
+            }
+        }
+        return pipe
+    }
+
+    // MARK: - Discovery files in the data directory
+
+    /// PID of a Soloist process that owns our data directory, if one is running.
+    private func runningInstancePID() -> pid_t? {
+        let pidFile = configuration.dataDirectory.appending(path: "soloist.pid")
+        guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 0,
+              kill(pid, 0) == 0 // signal 0 = "does this process exist?", sends nothing
+        else { return nil }
+
+        // The PID file may be stale and the number reused by another program.
+        guard Self.executableName(of: pid) == "soloist" else { return nil }
+        return pid
+    }
+
+    private static func executableName(of pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096) // PROC_PIDPATHINFO_MAXSIZE
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return URL(filePath: path).lastPathComponent
+    }
+
+    /// Reads `ws.addr` and `ws.port`, which Soloist writes once its WebSocket
+    /// server is listening.
+    private func webSocketURL(writtenAfter date: Date?) -> URL? {
+        let portFile = configuration.dataDirectory.appending(path: "ws.port")
+        let addressFile = configuration.dataDirectory.appending(path: "ws.addr")
+
+        if let date {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: portFile.path)
+            guard let modified = attributes?[.modificationDate] as? Date, modified >= date else { return nil }
+        }
+        guard let portText = try? String(contentsOf: portFile, encoding: .utf8),
+              let port = Int(portText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...65535).contains(port)
+        else { return nil }
+
+        let address = (try? String(contentsOf: addressFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only ever connect to loopback, whatever the file says.
+        guard address == nil || address == "127.0.0.1" else {
+            Log.soloist.error("Soloist WebSocket is not bound to loopback; refusing to connect")
+            return nil
+        }
+        return URL(string: "ws://127.0.0.1:\(port)")
+    }
+}

@@ -1,0 +1,148 @@
+import AuralCore
+import Foundation
+
+/// Command-line driver for AuralCore's Soloist source (Stage 1, before the app).
+///
+///     aural-probe [--soloist PATH] [--name NAME] [play <uri>]
+///
+/// Starts (or attaches to) Soloist, prints every playback event, optionally
+/// plays a URI once logged in, and stops Soloist on Ctrl-C.
+/// Printing to stdout is this tool's purpose, not debug output.
+@main
+struct Probe {
+    static func main() async {
+        // Flush each line immediately, also when stdout is a file or pipe.
+        setvbuf(stdout, nil, _IOLBF, 0)
+
+        let options: Options
+        do {
+            options = try Options(arguments: Array(CommandLine.arguments.dropFirst()))
+        } catch {
+            fail(error.localizedDescription + "\n\n" + Options.usage)
+        }
+
+        let apiKey: String
+        do {
+            apiKey = try Keychain.readPassword(service: SoloistConfiguration.apiKeyKeychainService)
+        } catch {
+            fail("Could not read the Soloist API key from the Keychain (\(error)).")
+        }
+
+        let configuration = SoloistConfiguration(executableURL: options.soloistPath, deviceName: options.deviceName)
+        let source = SoloistSource(configuration: configuration)
+        let shutdown = handleInterrupts(source: source)
+
+        do {
+            switch try await source.start(apiKey: apiKey) {
+            case .launched:
+                say("Launched Soloist: \(configuration.executableURL.path)")
+            case .attached(let pid):
+                say("Attached to running Soloist (pid \(pid)); it keeps running after Ctrl-C")
+            }
+        } catch {
+            fail(error.localizedDescription)
+        }
+        say("Connected. Press Ctrl-C to stop.")
+
+        var pendingURI = options.uri
+        for await event in source.events {
+            switch event {
+            case .loginChanged(let isLoggedIn):
+                say(isLoggedIn ? "login    logged in" : "login    not logged in — open Spotify and choose \"\(options.deviceName)\"")
+                if isLoggedIn, let uri = pendingURI {
+                    pendingURI = nil
+                    say("command  play \(uri)")
+                    do { try await source.play(uri: uri) } catch { say("error    \(error.localizedDescription)") }
+                }
+            case .stateChanged(let state):
+                say("state    " + describe(state))
+            case .error(let message):
+                say("error    \(message)")
+            }
+        }
+        _ = shutdown
+    }
+
+    // MARK: - Output
+
+    private static func describe(_ state: PlaybackState) -> String {
+        let track = state.track.map { "\"\($0.title)\" — \($0.artists.joined(separator: ", "))" } ?? "(no track)"
+        let duration = state.track?.durationMs ?? 0
+        let position = state.position.current(durationMs: duration)
+        let actions = state.availableActions.map(\.rawValue).sorted().joined(separator: " ")
+        return "\(state.status.rawValue)  \(track)  \(time(position))/\(time(duration))"
+            + "  vol \(state.volume)  shuffle \(state.shuffle ? "on" : "off")  repeat \(state.repeatMode.rawValue)"
+            + "  [\(actions)]"
+    }
+
+    private static func time(_ ms: Int) -> String {
+        let seconds = ms / 1000
+        return "\(seconds / 60):" + String(format: "%02d", seconds % 60)
+    }
+
+    private static func say(_ line: String) {
+        let stamp = Date.now.formatted(date: .omitted, time: .standard)
+        print("\(stamp)  \(line)")
+    }
+
+    private static func fail(_ message: String) -> Never {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+        exit(1)
+    }
+
+    // MARK: - Ctrl-C
+
+    /// Stops Soloist cleanly on Ctrl-C / SIGTERM instead of leaving it running.
+    /// Returns the signal sources, which must stay alive for the handlers to fire.
+    private static func handleInterrupts(source: SoloistSource) -> [any DispatchSourceSignal] {
+        [SIGINT, SIGTERM].map { signalNumber in
+            signal(signalNumber, SIG_IGN) // let the DispatchSource handle it instead
+            let signalSource = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            signalSource.setEventHandler {
+                Task {
+                    say("Stopping…")
+                    await source.stop()
+                    exit(0)
+                }
+            }
+            signalSource.resume()
+            return signalSource
+        }
+    }
+}
+
+// MARK: - Arguments
+
+private struct Options {
+    static let usage = "usage: aural-probe [--soloist PATH] [--name NAME] [play <uri>]"
+
+    var soloistPath: URL?
+    var deviceName = "Aural"
+    var uri: String?
+
+    struct ArgumentError: LocalizedError {
+        let errorDescription: String?
+    }
+
+    init(arguments: [String]) throws {
+        var remaining = arguments[...] // an ArraySlice we can pop from
+        while let argument = remaining.popFirst() {
+            switch argument {
+            case "--soloist":
+                guard let path = remaining.popFirst() else { throw ArgumentError(errorDescription: "--soloist needs a path") }
+                soloistPath = URL(filePath: (path as NSString).expandingTildeInPath)
+            case "--name":
+                guard let name = remaining.popFirst() else { throw ArgumentError(errorDescription: "--name needs a value") }
+                deviceName = name
+            case "play":
+                guard let uri = remaining.popFirst() else { throw ArgumentError(errorDescription: "play needs a URI") }
+                guard uri.hasPrefix("spotify:") else { throw ArgumentError(errorDescription: "not a Spotify URI: \(uri)") }
+                self.uri = uri
+            case "-h", "--help":
+                throw ArgumentError(errorDescription: "Plays a Spotify URI through Soloist and prints events.")
+            default:
+                throw ArgumentError(errorDescription: "unknown argument: \(argument)")
+            }
+        }
+    }
+}

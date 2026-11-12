@@ -221,7 +221,11 @@ _Update this section at the end of each stage: what works, measured memory (Aura
   - Memory (`footprint` / `vmmap`): idle not paired 5.5 MB; logged in idle 19 MB; playing 34–37 MB (peak 37.6 MB); crash-reporter helper process ~3.8 MB.
   - Confirmed working: pairing from the Spotify app, session restore on restart, `play` with track and album URIs, `pause`, `seek`, `set_volume`, `set_shuffle` + repeat (album context), autoplay after a single track, `trace` events listed in "Soloist integration".
   - Known issues: Local Network permission required for discovery; shuffle/repeat silently ignored for a single-track context; API key visible in `ps`; device visible to everyone on the LAN.
-- [ ] Stage 1 — Soloist control prototype
+- [x] Stage 1 — Soloist control prototype (2026-11-12)
+  - AuralCore Swift package (no dependencies): `PlaybackSource` protocol and models, `SoloistSource` (actor) built from `SoloistProcess` (launch / attach / stop), `SoloistConnection` (`URLSessionWebSocketTask`), wire types + pure mapping, Keychain read. `aural-probe` CLI; `make test`, `make probe URI=… [SOLOIST=…]`.
+  - Verified live: launch with stored session (logs in by itself), attach to an already running Soloist (left running on exit), `play` track URI, events → state, Ctrl-C stops Soloist and its helper process, missing executable error, Soloist killed → error event. 14 unit tests (decoding from real message shapes, command encoding, repeat mapping, position, state merging).
+  - Memory during playback: aural-probe (debug build) 5.8 MB; Soloist 24–25 MB + helper 3.8 MB; combined ~34 MB.
+  - Known issues: the ad-hoc-signed probe triggers a Keychain access prompt after rebuilds (fixed by stable signing in Stage 2); the first `playback_state` after a track change can briefly show the previous position until `position_sync` arrives.
 - [ ] Stage 2 — Minimal app, Now Playing, media keys
 - [ ] Stage 3 — Library and search
 - [ ] Stage 4 — Full UI with Liquid Glass
