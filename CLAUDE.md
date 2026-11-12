@@ -114,7 +114,7 @@ Principles:
 Confirmed in Stage 0 (Soloist 1.3.10, docs + hands-on test):
 
 **Setup and launch**
-- The user downloads Soloist from Spotify's official downloads page and generates their own Soloist API key in the Spotify for Developers dashboard (`/dashboard/soloist`, requires Premium). **Aural never bundles or redistributes Soloist** — it links to the official page and lets the user point to the installed executable.
+- The user generates their own Soloist API key in the Spotify for Developers dashboard (`/dashboard/soloist`, requires Premium). Aural installs Soloist itself from Spotify's official download URL (see "Soloist management in the app"). **Aural never bundles, hosts, mirrors or redistributes Soloist.**
 - The API key is stored in the Keychain and passed **only as the `-k` / `--api-key` argument** — Soloist has no environment variable or config file for it. It is never logged or written to files. Known limitation: while Soloist runs, the key is visible in the process list (`ps`) to processes of the same user.
 - Aural launches Soloist as a child process with `-n <device name> -k <key> --ws 127.0.0.1:0 -z 100`, or connects to an already running instance. Always bind the WebSocket to loopback (the API has no auth/TLS). Port `0` = OS-assigned; read the real port from `~/Library/Application Support/soloist/ws.port` (and `ws.addr`). `-z 100` caps Soloist's playback cache (default is unlimited; minimum 100 MB). Aural stops the child process when it quits.
 - Daemon exit codes: `0` OK, `1` general failure, `10` build expired.
@@ -126,7 +126,15 @@ Confirmed in Stage 0 (Soloist 1.3.10, docs + hands-on test):
 - Soloist is visible as a Connect device to everyone on the local network (Free accounts can connect too). There is no option to disable network discovery. Mention this under limitations in the README.
 
 **Expiry**
-- **Builds expire 90 days after their build date.** `soloist --version` prints e.g. `soloist 1.3.10.65 build 1794463304 (20261112) …`; expiry = the date in parentheses + 90 days. Aural warns the user in good time; on exit code `10` it shows a clear "update Soloist" message with a link.
+- **Builds expire 90 days after their build date.** `soloist --version` prints e.g. `soloist 1.3.10.65 build 1794463304 (20261112) …`; expiry = the date in parentheses + 90 days. How Aural handles it: see "Soloist management in the app".
+- **The API key has no documented expiry.** The docs only say: if the key is revoked or replaced in the dashboard, restart Soloist with the new key; the key is separate from the stored session and is required at every startup. Treat it as valid until revoked, and let the user replace it from the app if Soloist rejects it (exact rejection behaviour still to be verified).
+
+**Soloist management in the app** (no terminal commands for the user, ever)
+- Aural manages its own Soloist install in `~/Library/Application Support/Aural/soloist/`. The executable path comes from **one place in AuralCore** and is never hard-coded elsewhere. It defaults to that path and allows an override (used by the probe and for a manual install).
+- Soloist's data directory (device identity, pairing session) stays separate from the executable (default `~/Library/Application Support/soloist/`), so the API key (Keychain) and the pairing session survive updates.
+- **Install and update from the app:** download the official macOS archive directly from Spotify's official download URL (`https://soloist-builds.spotifycdn.com/soloist_release_osx_arm64.tar.gz`) into a fresh temporary directory, extract it, **verify the code signature is `Developer ID Application: Spotify (2FNC3A47ZF)`** (Security framework, before the executable is ever run), then replace the old executable and restart Soloist. Spotify publishes no checksums, so the signature check is the integrity check. If the download or verification fails, fall back to opening the official downloads page.
+- **Expiry:** read the build date from `soloist --version` at startup. From 7 days before expiry, show a non-blocking notice with an "Update" button. On exit code `10`, show a clear screen with the same button.
+- **First run is a guided setup screen:** install Soloist → enter the API key (stored in Keychain) → pair from the Spotify app ("Open Spotify and choose <device name>"), including the Local Network permission step.
 
 **WebSocket API**
 - JSON text frames. Commands: `{"type":"command","command":"<name>", …}`. Queries: `get_auth_state`, `get_state`, `get_queue {limit}`. Controls: `play {uri?}`, `pause`, `skip_next`, `skip_prev`, `seek {position_ms}`, `set_volume {volume}`, `set_shuffle {enabled}`, `set_repeat_context {enabled}`, `set_repeat_track {enabled}`, `add_to_queue {uri}`, `activate`, `deactivate`.
@@ -172,7 +180,7 @@ Work **one stage at a time**. Each stage must end with something that runs. Do n
 4. **Full UI per design.** The mini player as in `docs/design.png`, with Liquid Glass; the playlists button and panel (prototype 2 options first).
 5. **Queue, shuffle, repeat, autoplay, like button.**
 6. **Demo mode** with the Local source.
-7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, Soloist setup and expiry flow, app icon, README, screenshots and a short video recorded in demo mode.
+7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (guided first-run setup, install/update with signature check, expiry notice and exit-code-10 screen, replacing the API key — see "Soloist management in the app"), app icon, README, screenshots and a short video recorded in demo mode.
 
 Optional later stages (only if the owner asks): menu bar mode; global keyboard shortcuts.
 
