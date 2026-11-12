@@ -13,6 +13,8 @@ public enum SoloistError: Error, Equatable {
     case startTimeout
     /// Another Soloist owns the data directory but was started without `--ws`.
     case runningWithoutWebSocket
+    /// `attach()` found no running Soloist.
+    case notRunning
     case notConnected
 }
 
@@ -26,6 +28,7 @@ extension SoloistError: LocalizedError {
         case .killed(let signal): "Soloist was terminated (signal \(signal))."
         case .startTimeout: "Soloist did not start its control interface in time."
         case .runningWithoutWebSocket: "Soloist is already running without its control interface. Quit it and try again."
+        case .notRunning: "Soloist is not running."
         case .notConnected: "Not connected to Soloist."
         }
     }

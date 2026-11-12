@@ -1,0 +1,4 @@
+// Shared build settings for the Aural app.
+// Personal values (your Apple development team ID) go in Local.xcconfig,
+// which is not committed. Copy Local.xcconfig.example to get started.
+#include? "Local.xcconfig"

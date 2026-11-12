@@ -32,7 +32,21 @@ public actor SoloistSource: PlaybackSource {
             case .loginRejected: continuation.yield(.loginRejected)
             }
         }
+        await connect(to: url)
+        return mode
+    }
 
+    /// Connects to a Soloist that is already running (e.g. Aural's), without an
+    /// API key and without stopping it later. For developer tools like the probe.
+    @discardableResult
+    public func attach() async throws(SoloistError) -> Int32 {
+        let (pid, url) = try await process.attach()
+        await connect(to: url)
+        return pid
+    }
+
+    private func connect(to url: URL) async {
+        let continuation = self.continuation
         let connection = SoloistConnection(url: url)
         self.connection = connection
         let stream = await connection.connect()
@@ -48,7 +62,6 @@ public actor SoloistSource: PlaybackSource {
                 continuation.yield(.error("Lost connection to Soloist: \(error.localizedDescription)"))
             }
         }
-        return mode
     }
 
     public func stop() async {

@@ -3,11 +3,14 @@ import Foundation
 
 /// Command-line driver for AuralCore's Soloist source (Stage 1, before the app).
 ///
-///     aural-probe [--soloist PATH] [--name NAME] [play <uri>]
+///     aural-probe [play <uri>]                                 attach to Aural's running Soloist
+///     aural-probe --launch [--soloist PATH] [--name NAME] [play <uri>]
 ///     aural-probe [--soloist PATH] install
 ///
-/// Starts (or attaches to) Soloist, prints every playback event, optionally
-/// plays a URI once logged in, and stops Soloist on Ctrl-C.
+/// By default it connects to the Soloist that Aural is running: no API key is
+/// needed (so no Keychain prompt) and Soloist keeps running after Ctrl-C.
+/// With `--launch` it starts its own Soloist, reading the key from the Keychain
+/// (macOS asks for access, since the entry belongs to the Aural app).
 /// Printing to stdout is this tool's purpose, not debug output.
 @main
 struct Probe {
@@ -27,26 +30,28 @@ struct Probe {
             return
         }
 
-        let apiKey: String
-        do {
-            apiKey = try Keychain.readPassword(service: SoloistConfiguration.apiKeyKeychainService)
-        } catch {
-            fail("Could not read the Soloist API key from the Keychain (\(error)).")
-        }
-
         let configuration = SoloistConfiguration(executableURL: options.soloistPath, deviceName: options.deviceName)
         let source = SoloistSource(configuration: configuration)
         let shutdown = handleInterrupts(source: source)
 
         do {
-            switch try await source.start(apiKey: apiKey) {
-            case .launched:
-                say("Launched Soloist: \(configuration.executableURL.path)")
-            case .attached(let pid):
-                say("Attached to running Soloist (pid \(pid)); it keeps running after Ctrl-C")
+            if options.launch {
+                let apiKey: String
+                do {
+                    apiKey = try Keychain.readPassword(service: SoloistConfiguration.apiKeyKeychainService)
+                } catch {
+                    fail("Could not read the Soloist API key from the Keychain (\(error)).")
+                }
+                switch try await source.start(apiKey: apiKey) {
+                case .launched: say("Launched Soloist: \(configuration.executableURL.path)")
+                case .attached(let pid): say("Took over running Soloist (pid \(pid))")
+                }
+            } else {
+                let pid = try await source.attach()
+                say("Attached to Aural's Soloist (pid \(pid)); it keeps running after Ctrl-C")
             }
         } catch {
-            fail(error.localizedDescription)
+            fail(error.localizedDescription + (options.launch ? "" : " Open Aural first, or use --launch."))
         }
         say("Connected. Press Ctrl-C to stop.")
 
@@ -132,12 +137,13 @@ struct Probe {
 // MARK: - Arguments
 
 private struct Options {
-    static let usage = "usage: aural-probe [--soloist PATH] [--name NAME] [play <uri> | install]"
+    static let usage = "usage: aural-probe [--launch] [--soloist PATH] [--name NAME] [play <uri> | install]"
 
     var soloistPath: URL?
     var deviceName = "Aural"
     var uri: String?
     var install = false
+    var launch = false
 
     struct ArgumentError: LocalizedError {
         let errorDescription: String?
@@ -157,6 +163,8 @@ private struct Options {
                 guard let uri = remaining.popFirst() else { throw ArgumentError(errorDescription: "play needs a URI") }
                 guard uri.hasPrefix("spotify:") else { throw ArgumentError(errorDescription: "not a Spotify URI: \(uri)") }
                 self.uri = uri
+            case "--launch":
+                launch = true
             case "install":
                 install = true
             case "-h", "--help":

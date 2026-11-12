@@ -1,0 +1,4 @@
+// Copy to Local.xcconfig (not committed) and fill in your team ID.
+// Find it in Xcode → Settings → Accounts, or in a signed build's
+// `codesign -dv` output ("TeamIdentifier").
+DEVELOPMENT_TEAM = YOURTEAMID

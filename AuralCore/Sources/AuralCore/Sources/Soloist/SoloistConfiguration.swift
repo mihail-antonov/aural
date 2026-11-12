@@ -50,6 +50,7 @@ public struct SoloistConfiguration: Sendable {
 public enum SoloistStartMode: Sendable, Equatable {
     /// Aural launched Soloist and stops it on quit.
     case launched
-    /// Soloist was already running with the same data directory; Aural leaves it running.
+    /// Soloist was already running with the same data directory (e.g. after a
+    /// crash); Aural takes it over and stops it on quit.
     case attached(pid: Int32)
 }

@@ -10,8 +10,11 @@ import os
 /// threads at once.
 actor SoloistProcess {
     private let configuration: SoloistConfiguration
-    /// Only set when Aural launched Soloist itself (not when attached).
+    /// Set when Aural launched Soloist itself.
     private var process: Process?
+    /// Set when Aural attached to a Soloist already running in its data
+    /// directory (e.g. left over after Aural crashed).
+    private var attachedPID: pid_t?
     /// Shared with `Process.terminationHandler`, which runs on a background
     /// thread outside the actor, so it needs its own lock.
     private let exitState = OSAllocatedUnfairLock(initialState: ExitState())
@@ -34,23 +37,42 @@ actor SoloistProcess {
     }
 
     /// Makes sure Soloist is running and returns how it was started and its WebSocket URL.
+    /// A Soloist already running in Aural's data directory (e.g. left over after
+    /// a crash) is taken over: `stop()` stops it too.
     /// - Parameter onNotice: called from a background thread for events of a
     ///   Soloist that Aural launched (an attached instance's output is not visible).
     func start(
         apiKey: String,
         onNotice: @escaping @Sendable (Notice) -> Void
     ) async throws(SoloistError) -> (SoloistStartMode, URL) {
-        if let pid = runningInstancePID() {
-            Log.soloist.info("Attaching to running Soloist (pid \(pid))")
-            guard let url = webSocketURL(writtenAfter: nil) else { throw .runningWithoutWebSocket }
+        if let (pid, url) = try runningInstance() {
+            attachedPID = pid
             return (.attached(pid: pid), url)
         }
         let url = try await launch(apiKey: apiKey, onNotice: onNotice)
         return (.launched, url)
     }
 
-    /// Stops Soloist if Aural launched it. An attached instance keeps running.
+    /// Connects to an already running Soloist without taking it over (no API key
+    /// needed). `stop()` leaves it running. Used by developer tools.
+    func attach() throws(SoloistError) -> (pid: pid_t, url: URL) {
+        guard let instance = try runningInstance() else { throw .notRunning }
+        return instance
+    }
+
+    private func runningInstance() throws(SoloistError) -> (pid: pid_t, url: URL)? {
+        guard let pid = runningInstancePID() else { return nil }
+        Log.soloist.info("Attaching to running Soloist (pid \(pid))")
+        guard let url = webSocketURL(writtenAfter: nil) else { throw .runningWithoutWebSocket }
+        return (pid, url)
+    }
+
+    /// Stops Soloist if Aural launched it or took it over in `start`.
     func stop() async {
+        if let pid = attachedPID {
+            attachedPID = nil
+            await Self.terminate(pid: pid)
+        }
         guard let process else { return }
         self.process = nil
         exitState.withLock { $0.isStopping = true }
@@ -66,6 +88,16 @@ actor SoloistProcess {
             kill(process.processIdentifier, SIGKILL)
         }
         Log.soloist.info("Soloist stopped")
+    }
+
+    /// SIGTERM, wait up to 5 s, then SIGKILL — for a process we did not launch.
+    private static func terminate(pid: pid_t) async {
+        guard kill(pid, SIGTERM) == 0 else { return }
+        for _ in 0..<50 where kill(pid, 0) == 0 {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+        Log.soloist.info("Stopped attached Soloist (pid \(pid))")
     }
 
     // MARK: - Launch

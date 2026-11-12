@@ -1,0 +1,42 @@
+# XcodeGen definition. Generate the Xcode project with `xcodegen` (or `make app`).
+# The generated Aural.xcodeproj is not committed.
+name: Aural
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+packages:
+  AuralCore:
+    path: ../AuralCore
+targets:
+  Aural:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    dependencies:
+      - package: AuralCore
+    settings:
+      base:
+        PRODUCT_NAME: Aural
+        PRODUCT_BUNDLE_IDENTIFIER: app.aural.Aural
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        ARCHS: arm64
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        CODE_SIGN_STYLE: Automatic
+        # Apple Development signing (Personal Team) gives a stable signature, so
+        # the Keychain does not ask again after every build.
+        CODE_SIGN_IDENTITY: Apple Development
+        ENABLE_HARDENED_RUNTIME: YES
+        # No App Sandbox: Aural downloads and runs Spotify's Soloist executable.
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Aural
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: >-
+          Aural runs Spotify Soloist, which uses your local network so the
+          Spotify app on your phone can find it and play music through this Mac.

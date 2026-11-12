@@ -32,3 +32,6 @@ xcuserdata/
 
 # Local secrets
 .env
+
+# Personal Xcode settings (team ID)
+App/Config/Local.xcconfig
