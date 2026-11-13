@@ -36,5 +36,9 @@ xcuserdata/
 # Personal Xcode settings (team ID)
 App/Config/Local.xcconfig
 
-# Design reference: third-party mockup with real album covers, kept locally only
-docs/design-2.png
+# Design reference and test screenshots (third-party mockup, real album
+# covers): kept locally only
+docs/
+
+# Owner's local test notes
+ISSUES.md
