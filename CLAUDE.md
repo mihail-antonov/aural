@@ -27,10 +27,10 @@ The first prototype used `librespot` (unofficial Rust implementation). Login wor
 - Search (tracks, albums, artists, playlists)
 - "Similar songs": continue playing related tracks when a context ends — Soloist's built-in autoplay (confirmed in Stage 0; no command to turn it on or off)
 - macOS Now Playing integration (Control Center, lock screen) and media keys (keyboard, AirPods)
-- **Demo mode with local audio files** (see "Demo mode")
 
 ### Out of scope — do not implement
 - Lyrics, podcasts, audiobooks
+- Playing local audio files or any music without Spotify (a "demo mode" was planned and dropped by the owner: Aural is bound to Spotify)
 - Recommendations UI, home feed, editorial content
 - Spotify Connect device switching / output device picker (exception: the player's device menu can take playback over to Aural — "Playing in Aural")
 - Offline downloads of Spotify content, recording audio
@@ -73,7 +73,6 @@ Visual rules:
 | Soloist control | `URLSessionWebSocketTask` to Soloist's local WebSocket API |
 | Soloist process | `Process` (Foundation) to launch / stop it |
 | Spotify Web API (library, search) | `URLSession` + `Codable` — only for what still works, see "Web API availability" |
-| Demo mode playback | `AVFoundation` (`AVPlayer` / `AVAudioPlayer`) |
 | Now Playing + media keys | `MPNowPlayingInfoCenter`, `MPRemoteCommandCenter` |
 | Secrets (Soloist API key, tokens) | Keychain (Security framework) |
 | Project | **XcodeGen** (`project.yml`) for the app; logic in a local **Swift package** |
@@ -91,7 +90,6 @@ AuralCore/                  # local Swift package: all logic, no UI
     Player/                 # player abstraction, PlaybackState, events
     Sources/
       Soloist/              # process management, WebSocket client, message types
-      Local/                # demo mode (AVFoundation)
     Library/                # playlists, liked songs, albums, search (Web API)
     Cache/                  # on-disk image cache
     Support/                # Keychain, track-ID / URI parsing, logging
@@ -110,8 +108,8 @@ docs/
 Principles:
 - **AuralCore owns all logic and state** (like a backend); the app target is a thin UI layer (like a frontend) that sends commands and renders state. AuralCore must not import SwiftUI.
 - AuralCore is tested with `swift test` from the command line.
-- **Sources are behind a common protocol** (`PlaybackSource`: Soloist, Local). The rest of the app does not know which one is active. All Soloist-specific code stays in `Sources/Soloist`.
-- Queue, shuffle and repeat are owned by the playback source (Soloist owns them for Spotify; the Local source implements its own simple version). There is no separate queue module.
+- **Playback goes through a protocol** (`PlaybackSource`, implemented by the Soloist source), so the UI never sees Soloist's message format. All Soloist-specific code stays in `Sources/Soloist`.
+- Queue, shuffle and repeat are owned by the playback source (Soloist, plus Aural's list queue and history on top). There is no separate queue module.
 - Use Swift concurrency (`async`/`await`, actors) for the WebSocket client and process management. UI state is updated on the main actor.
 - Nothing in the UI blocks on Soloist, the network, or disk.
 
@@ -170,8 +168,6 @@ Rules:
 - Web API login uses OAuth Authorization Code with PKCE; the redirect URI must use the loopback address `http://127.0.0.1:<port>/...`, not `localhost`. Tokens go in the Keychain.
 - Keep a list in "Progress" of which Soloist messages and Web API endpoints are actually used and confirmed working.
 
-### Demo mode
-A **Local** source: the user picks a folder of audio files (MP3, FLAC, AAC/M4A, WAV), shown as a "playlist". Purpose: anyone can run the app without Spotify (portfolio), and screenshots / videos use royalty-free music instead of copyrighted album art. Read metadata and embedded artwork with AVFoundation. Keep it simple — no library database.
 
 ## Memory rules
 
@@ -191,8 +187,8 @@ Work **one stage at a time**. Each stage must end with something that runs. Do n
 3. **Library and search.** Web API login as setup step 4. Playlists, Liked Songs, saved albums, search, and the like button's save/remove — all through the Web API (OAuth PKCE), since Soloist provides no library, search or like. Confirm each endpoint with a real request first. Remember `play` cannot take artist URIs.
 4. **Full UI per design.** The player as in `docs/design-2.png` (see "Design"), with Liquid Glass: cover-tinted background, circular cover with progress ring, glass controls, volume popover, `…` menu; the list button's playlists / queue panel (prototype 2 options first).
 5. **Queue, shuffle, repeat, autoplay, like button.**
-6. **Demo mode** with the Local source.
-7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (update flow, expiry notice and exit-code-10 screen with "Update" button, a settings screen to replace the API key — see "Soloist management in the app"; first-run setup and install are done in Stage 2), app icon, README, screenshots and a short video recorded in demo mode.
+6. ~~Demo mode~~ — dropped (see "Out of scope").
+7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (update flow, expiry notice and exit-code-10 screen with "Update" button, a settings screen to replace the API key — see "Soloist management in the app"; first-run setup and install are done in Stage 2), app icon, README, screenshots and a short video (see "Portfolio" for the cover-art question).
 
 Optional later stages (only if the owner asks): menu bar mode; global keyboard shortcuts.
 
@@ -214,10 +210,10 @@ Optional later stages (only if the owner asks): menu bar mode; global keyboard s
 ## Portfolio
 
 - **README headline: measured memory.** "Official Spotify client: ~X GB. Aural + Soloist: Y MB." Measure honestly under the same conditions; include Activity Monitor screenshots.
-- README sections: what it is, why (memory), architecture diagram (SwiftUI ↔ AuralCore ↔ WebSocket ↔ Soloist ↔ Spotify), the librespot → Soloist story, setup (download Soloist from the official page, generate your own API key), how to build, demo mode, limitations.
+- README sections: what it is, why (memory), architecture diagram (SwiftUI ↔ AuralCore ↔ WebSocket ↔ Soloist ↔ Spotify), the librespot → Soloist story, setup (download Soloist from the official page, generate your own API key), how to build, limitations.
 - **Disclaimer:** unofficial interface for Spotify Soloist; requires Spotify Premium; not affiliated with, endorsed or sponsored by Spotify.
 - No Spotify logo or brand colors in the app or README.
-- Screenshots and videos are recorded in **demo mode** with royalty-free music.
+- Screenshots and videos must not show copyrighted album art prominently. Open question (decide in Stage 7): e.g. play royalty-free / Creative Commons music that is on Spotify, or blur the covers.
 
 ## Legal note
 
@@ -263,9 +259,15 @@ _Update this section at the end of each stage: what works, measured memory (Aura
   - Fixed: the window was 32 pt taller than its content (hidden title bar height added on top), which caused the blank strip at the bottom; the content now subtracts the measured title-bar height.
   - Memory (owner, Activity Monitor, debug build, after using every screen): Aural 59 MB (transient peak ~100 MB while clicking through lists), Soloist 28.5 MB + helper 4 MB; combined ~92 MB. Idle before playing (`footprint`): Aural 34 MB, Soloist 19 MB + 3.7 MB. Cover is now Spotify's 640 px image decoded at 450 px (~0.8 MB).
   - Known issues: the transient browsing peak (list thumbnails via `AsyncImage`) — revisit with the capped image cache in Stage 7; Home page postponed; list thumbnails are 64 px images at 44–52 pt (slightly soft).
-- [ ] Stage 5 — Queue, shuffle, repeat, autoplay, like
-  - Done ahead (owner's test round, 2026-11-13): heart moved to the bottom row (Liked Songs only; a Spotify-style `+` with add to playlists was tried and dropped by the owner to stay a lightweight player, so no `playlist-modify-*` scopes); setup fields are plain filled fields, not glass, Save to Library for albums and other people's playlists (hidden if Spotify answers 403, e.g. if saving a playlist needs a scope Aural does not request), song count and total time on album / playlist pages.
-  - Queue: its own page, opened from the player's bottom row (works without the Web API): Now Playing, then "Next in Queue" / "Up Next" / "Autoplay". While Aural plays one of its lists, Soloist's queue holds only the next track, so the page shows the rest of the list (up to 50) and rows jump there (`jump(toQueueEntry:)`); otherwise it shows Soloist's `queue_changed` entries (at most 10, display only — Soloist has no "play this queue entry"). `PlaybackSource.play(tracks:)` now takes `Track`s (with `thumbnailURL`) so the queue has titles and covers. Clear Queue (trash icon in the page header): Soloist cannot clear its queue, so Aural stops continuing its list and skips queued songs when they start (`SoloistListQueue.skipWhenStarted`); the playing playlist / album and autoplay stay, as in Spotify. **To confirm live:** that `queue_changed` entries carry decorations (title, artists, covers) — `make probe` prints a `queue` line with the first title.
-  - Confirmed by the owner in the app (2026-11-13): `PUT` / `DELETE /me/library` and `GET /me/library/contains` with album and playlist URIs (Save to Library). `aural-probe webapi-check` also checks `contains` for an album and a followed playlist (read-only).
-- [ ] Stage 6 — Demo mode (local files)
+- [x] Stage 5 — Queue, shuffle, repeat, autoplay, like (2026-11-13)
+  - Player layout reworked with the owner: header row from the design (device menu left, playlist / album name middle, heart right), title scrolls when too long (`MarqueeText`, still with Reduce Motion), controls row shuffle · previous · play · next · repeat, bottom row search · library · queue · volume. Layout anchored top / bottom with the ring filling the middle (`Metrics`). Window 320 × 638 (fixed; the title-bar measurement had silently returned 0 and made the window 52 pt taller than specified).
+  - Device menu: speaker icon (accent while Aural is the active device); "Playing in Spotify" (state only, disabled) / "Playing in Aural" (takes playback over: `activate` + `play`).
+  - Queue page (works without the Web API): Now Playing, "Next in Queue" / "Up Next" / "Autoplay". While Aural plays one of its lists, Soloist's queue holds only the next track, so the page shows the rest of the list (up to 50) and rows jump there; otherwise Soloist's `queue_changed` entries (at most 10, display only). Confirmed live by the owner: queue entries carry titles, artists and covers. Clear Queue: Soloist cannot clear its queue, so Aural stops its list and skips queued songs when they start (`SoloistListQueue.skipWhenStarted`).
+  - Like: heart in the header row (Liked Songs only; add-to-playlist was tried and dropped to stay lightweight — no `playlist-modify-*` scopes). No flicker on track changes (last state kept, Liked Songs known up front). Save to Library for albums and other people's playlists; song count and total time on album / playlist pages. Confirmed by the owner: `PUT` / `DELETE /me/library` and `GET /me/library/contains` with album and playlist URIs.
+  - Shuffle / repeat in the controls row; autoplay is Soloist's own.
+  - UI: library pages slide in and out (own page stack; macOS `NavigationStack` did not animate); Apple's button styles throughout (glass for the player and collection pages; filled accent, borderless and `Link` in setup); Spotify-style icon tooltips (`Tooltip.swift`, agreed exception); play/pause no longer flickers between tracks; progress ring glides back on a new track.
+  - 50 unit tests.
+  - Memory (`footprint`, debug build, logged in, idle after launch): Aural 33 MB (peak 42 MB), Soloist 22 MB + helper 3.8 MB; combined ~59 MB. Not yet measured while playing and after browsing every page — record in Stage 7 with the release build.
+  - Known issues: Soloist reports at most 10 queue entries for whole playlists / albums; a cleared queued song may sound for a moment before it is skipped; the device menu cannot name the other device.
+- [x] ~~Stage 6 — Demo mode (local files)~~ — dropped by the owner (2026-11-13): Aural is a lightweight player bound to Spotify, not a standalone media player.
 - [ ] Stage 7 — Polish and portfolio

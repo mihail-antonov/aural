@@ -1,7 +1,7 @@
 import Foundation
 
-// Source-independent playback models. Both the Soloist source and (later) the
-// Local source produce these, so the UI never sees Soloist-specific types.
+// Playback models the UI works with. The Soloist source maps its messages to
+// these, so the UI never sees Soloist-specific types.
 // All of them are small value types (`struct` / `enum`): copying them is cheap
 // and they are `Sendable`, so they can be passed between actors safely.
 

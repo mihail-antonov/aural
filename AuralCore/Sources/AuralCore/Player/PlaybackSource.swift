@@ -1,5 +1,6 @@
-/// Common interface for everything that can play music: Soloist (Spotify) and,
-/// from Stage 6, local files. The rest of Aural talks only to this protocol.
+/// The interface the app uses to control playback, implemented by the
+/// Soloist (Spotify) source. The rest of Aural talks only to this protocol,
+/// so it never sees Soloist's message format.
 ///
 /// Commands return as soon as they are sent. The resulting state change arrives
 /// later on `events` — callers should not assume a command took effect.
