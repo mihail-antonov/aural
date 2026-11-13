@@ -19,7 +19,8 @@ public struct SpotifyAuth: Sendable {
     public static let dashboardURL = URL(string: "https://developer.spotify.com/dashboard")! // constant literal
 
     /// Only what Aural uses: read playlists (own + collaborative), read and
-    /// change Liked Songs / saved albums. Search needs no scope.
+    /// change Liked Songs / saved albums. Search needs no scope. Aural does
+    /// not edit playlists, so it never asks for `playlist-modify-*`.
     public static let scopes = [
         "playlist-read-private",
         "playlist-read-collaborative",

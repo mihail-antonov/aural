@@ -48,13 +48,13 @@ A single **portrait window, 320 × 576 pt, fixed size**, rounded corners, no too
 2. **Track info:** title (bold) and artist (secondary), centered.
 3. **Time:** `01:23 | 02:35` (elapsed | total), small, with monospaced digits, above the cover.
 4. **Cover with progress ring:** the album art **cropped to a circle**, surrounded by a **circular progress ring** (accent-colored arc on a faint track) with a round **draggable knob**. Custom-drawn (no system control exists): must support VoiceOver (adjustable value) and keyboard seeking.
-5. **Controls row:** [left slot], previous, a **large white circular play/pause button**, next, **heart** (accent color when liked). The design's `⊖` ("hide song") is dropped — no API for it. The left slot needs an in-scope replacement so the row stays balanced; decide in Stage 4/5 (candidates: skip back 15 s — Soloist reports `seek_backward` with `step_ms: 15000`; go to album/playlist).
-6. **Bottom row:** shuffle, **list** (opens the user's playlists and the queue — the presentation, e.g. popover / sheet / panel sliding over the player, is prototyped in 2 options in Stage 4), **volume** (opens a small glass popover with a slider), repeat. Shuffle/repeat use the accent color when active.
+5. **Controls row:** shuffle, previous, a **large round play/pause button** (system Liquid Glass `.glass` button), next, repeat. Shuffle/repeat use the accent color when active. The design's `⊖` ("hide song") is dropped — no API for it.
+6. **Bottom row:** search, **list** (opens the library in the same window), **volume** (opens a small glass popover with a slider), **heart** (adds the song to Liked Songs; filled accent heart when liked, clicking again removes it). No adding to playlists — Aural stays a lightweight player.
 
 Visual rules:
 - **Background:** a vertical gradient **tinted from the current cover's dominant color** (computed from the small, already downscaled cover image), dark enough for white text. It changes smoothly with the track. Opaque, as in the design: it is the content layer and keeps text readable on any wallpaper.
 - **Accent color:** warm peach, approximately `#F0B878` (tune to match the reference). Fixed, not derived from the cover. Used sparingly: progress ring and knob, time highlight, heart, active shuffle/repeat.
-- **Liquid Glass (Apple's design language, macOS 26):** glass belongs to the **controls layer**, not to content. Use system glass button styles (`.glass`, `.glassProminent` for play/pause, tinted white) and `.glassEffect()`, grouping nearby controls in a `GlassEffectContainer`. Header buttons, the `…` menu, control rows and popovers are glass; the cover and background are not. Check Apple's current documentation for exact APIs.
+- **Liquid Glass (Apple's design language, macOS 26):** glass belongs to the **controls layer**, not to content. Use Apple's own button styles, not custom ones: `.glass` for play/pause and the Play / Shuffle / Save buttons (Play's icon in the accent color), no glass in setup: `.borderedProminent` in the accent color for the main button, `.borderless` and `Link` for minor actions, plain filled text fields (`.glassProminent` has no hover or press feedback on macOS); `.glassEffect()`, grouping nearby controls in a `GlassEffectContainer`. Header buttons, the `…` menu, control rows and popovers are glass; the cover and background are not. Check Apple's current documentation for exact APIs.
 - **Fonts:** system fonts only (SF Pro); monospaced digits for times.
 - Respect **Reduce Transparency** and **Increase Contrast** (verify how glass behaves with them; the opaque background already works without transparency).
 - Prefer **system SwiftUI controls and SF Symbols** over custom-drawn ones, so they adopt Liquid Glass automatically. The progress ring is the exception.
@@ -142,7 +142,7 @@ Confirmed in Stage 0 (Soloist 1.3.10, docs + hands-on test):
 - **First run is a guided setup screen (Stage 2):**
   1. **Install Soloist** — one button: download from the official URL, verify the signature, install into Aural's folder. Skipped if a valid, unexpired install is already there.
   2. **Get your key** — a button opens the Soloist page in the Spotify for Developers dashboard; a field to paste the key; Aural starts Soloist with it and stores it in the Keychain.
-  3. **Pair your phone** — "Open Spotify on your phone and choose Aural from the devices." Includes the Local Network permission. Pairing is detected from `auth_state` and setup continues automatically. An invalid key is reported here (see above) with a way back to step 2.
+  3. **Pair with Spotify** — "Open Spotify on your phone or another computer and choose Aural from the devices." Any official Spotify app with the Connect device picker works; needed only once. Includes the Local Network permission. Pairing is detected from `auth_state` and setup continues automatically. An invalid key is reported here (see above) with a way back to step 2.
   4. Web API login for the library is added in Stage 3.
 - The user never needs a terminal command.
 
@@ -262,5 +262,7 @@ _Update this section at the end of each stage: what works, measured memory (Aura
   - Memory (owner, Activity Monitor, debug build, after using every screen): Aural 59 MB (transient peak ~100 MB while clicking through lists), Soloist 28.5 MB + helper 4 MB; combined ~92 MB. Idle before playing (`footprint`): Aural 34 MB, Soloist 19 MB + 3.7 MB. Cover is now Spotify's 640 px image decoded at 450 px (~0.8 MB).
   - Known issues: the transient browsing peak (list thumbnails via `AsyncImage`) — revisit with the capped image cache in Stage 7; Home page postponed; list thumbnails are 64 px images at 44–52 pt (slightly soft).
 - [ ] Stage 5 — Queue, shuffle, repeat, autoplay, like
+  - Done ahead (owner's test round, 2026-11-13): heart moved to the bottom row (Liked Songs only; a Spotify-style `+` with add to playlists was tried and dropped by the owner to stay a lightweight player, so no `playlist-modify-*` scopes); setup fields are plain filled fields, not glass, Save to Library for albums and other people's playlists (hidden if Spotify answers 403, e.g. if saving a playlist needs a scope Aural does not request), song count and total time on album / playlist pages.
+  - Confirmed by the owner in the app (2026-11-13): `PUT` / `DELETE /me/library` and `GET /me/library/contains` with album and playlist URIs (Save to Library). `aural-probe webapi-check` also checks `contains` for an album and a followed playlist (read-only).
 - [ ] Stage 6 — Demo mode (local files)
 - [ ] Stage 7 — Polish and portfolio

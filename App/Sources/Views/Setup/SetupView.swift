@@ -3,9 +3,10 @@ import AuralCore
 import SwiftUI
 
 /// Guided first-run setup, one step per screen, in the player's window and
-/// style: the tinted background is the content, and the controls are Liquid
-/// Glass (a prominent glass button for the main action, glass buttons and
-/// fields for the rest). Progress through the four steps shows at the top.
+/// style: the tinted background is the content; the controls are plain
+/// system controls (a filled accent button for the main action, text
+/// buttons and links for the rest), without Liquid Glass. Progress through
+/// the four steps shows at the top.
 struct SetupView: View {
     let setup: SetupModel
 
@@ -51,8 +52,9 @@ private struct StepProgress: View {
     }
 }
 
-/// The layout every step shares: icon, title and text at the top, the step's
-/// own content in the middle (scrolls if it is long), actions at the bottom.
+/// The layout every step shares: icon, title, text and the step's own
+/// content, centered vertically (scrolls if it is long), and the actions
+/// pinned to the bottom.
 private struct StepLayout<Content: View, Actions: View>: View {
     let systemImage: String
     let title: String
@@ -78,20 +80,20 @@ private struct StepLayout<Content: View, Actions: View>: View {
                     content
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 28)
+                .padding(.vertical, 16)
             }
             .scrollIndicators(.never)
+            // Content shorter than the screen sits in the middle of it.
+            .defaultScrollAnchor(.center, for: .alignment)
 
-            // Nearby glass controls are grouped, so they render and morph together.
-            GlassEffectContainer {
-                VStack(spacing: 10) { actions }
-            }
-            .padding(.top, 12)
+            VStack(spacing: 10) { actions }
+                .padding(.top, 12)
         }
     }
 }
 
-/// Main action of a step: a full-width prominent glass button.
+/// Main action of a step: the system's full-width filled button
+/// (`.borderedProminent`) in the accent color. No glass in setup.
 private struct PrimaryButton: View {
     let title: String
     var isBusy = false
@@ -103,46 +105,84 @@ private struct PrimaryButton: View {
                 if isBusy { ProgressView().controlSize(.small) }
                 Text(title).font(.body.weight(.semibold))
             }
+            // Dark text: white is hard to read on the light peach.
+            .foregroundStyle(.black.opacity(0.85))
             .frame(maxWidth: .infinity)
             .frame(height: 30)
         }
-        .buttonStyle(.glassProminent)
-        .tint(Theme.accent.opacity(0.85))
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
+        .tint(Theme.accent)
     }
 }
 
-/// A secondary action: full-width glass button.
-private struct SecondaryButton: View {
-    let title: String
-    var systemImage: String?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Group {
-                if let systemImage {
-                    Label(title, systemImage: systemImage)
-                } else {
-                    Text(title)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 26)
-        }
-        .buttonStyle(.glass)
-    }
-}
-
-/// A plain text action under the buttons ("Skip for now", "Cancel").
+/// A way out or a minor choice ("Cancel", "Skip for Now"): the system
+/// borderless button (plain text) under the main button, as in Apple's
+/// setup screens.
 private struct TextAction: View {
     let title: String
     let action: () -> Void
 
     var body: some View {
         Button(title, action: action)
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .font(.callout)
-            .foregroundStyle(.white.opacity(0.7))
+            .tint(.white.opacity(0.75))
+            .frame(height: 26)
+    }
+}
+
+/// Opens a web page or System Settings: the system `Link`, in the accent
+/// color, with an "opens elsewhere" arrow.
+private struct LinkButton: View {
+    let title: String
+    let url: URL
+
+    var body: some View {
+        Link(destination: url) {
+            HStack(spacing: 3) {
+                Text(title)
+                Image(systemName: "arrow.up.right").font(.caption.weight(.semibold))
+            }
+        }
+        .font(.callout.weight(.medium))
+        // `foregroundStyle`, not `tint`: the setup's white text style
+        // (set on `SetupView`) would otherwise win over the tint.
+        .foregroundStyle(Theme.accent)
+        .help(url.host() ?? title)
+    }
+}
+
+/// A plain text field for the key and the Client ID: a faint filled
+/// rounded rectangle with a thin border that turns accent while typing.
+/// Not glass: glass is for controls that float over content, and a glass
+/// field on the setup background looked heavy and blurry.
+private struct SetupField: View {
+    let placeholder: String
+    @Binding var text: String
+    var isSecure = false
+    var onSubmit: () -> Void = {}
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Group {
+            if isSecure {
+                SecureField(placeholder, text: $text)
+            } else {
+                TextField(placeholder, text: $text)
+            }
+        }
+        .textFieldStyle(.plain)
+        .focused($isFocused)
+        .onSubmit(onSubmit)
+        .padding(.horizontal, 12)
+        .frame(height: 32)
+        .background(.white.opacity(0.08), in: .rect(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isFocused ? Theme.accent.opacity(0.8) : .white.opacity(0.15), lineWidth: 1)
+        }
+        .animation(Theme.hoverAnimation, value: isFocused)
     }
 }
 
@@ -162,7 +202,6 @@ private struct ErrorText: View {
 
 private struct InstallStepView: View {
     let setup: SetupModel
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         StepLayout(
@@ -179,9 +218,7 @@ private struct InstallStepView: View {
             }
             .disabled(setup.isInstalling)
             if setup.installError != nil {
-                SecondaryButton(title: "Open the Download Page", systemImage: "safari") {
-                    openURL(SoloistInstaller.downloadsPageURL)
-                }
+                LinkButton(title: "Open the Download Page", url: SoloistInstaller.downloadsPageURL)
             }
         }
     }
@@ -192,7 +229,6 @@ private struct InstallStepView: View {
 private struct KeyStepView: View {
     // `@Bindable` lets us bind a text field to a property of an @Observable object.
     @Bindable var setup: SetupModel
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         StepLayout(
@@ -200,12 +236,10 @@ private struct KeyStepView: View {
             title: "Add Your API Key",
             message: "Soloist needs your personal API key. Sign in with your Premium account, generate a key and paste it here."
         ) {
-            SecondaryButton(title: "Open Spotify for Developers", systemImage: "safari") {
-                openURL(SoloistAPIKey.dashboardURL)
-            }
+            LinkButton(title: "Open Spotify for Developers", url: SoloistAPIKey.dashboardURL)
             .padding(.top, 4)
 
-            GlassField(placeholder: "Paste your API key", text: $setup.keyText, isSecure: true, onSubmit: submit)
+            SetupField(placeholder: "Paste your API key", text: $setup.keyText, isSecure: true, onSubmit: submit)
                 .disabled(setup.isStartingSoloist)
 
             if let error = setup.keyError {
@@ -236,23 +270,22 @@ private struct KeyStepView: View {
 
 private struct PairStepView: View {
     let setup: SetupModel
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         StepLayout(
-            systemImage: "iphone.radiowaves.left.and.right",
-            title: "Pair Your Phone",
-            message: "Open Spotify on your phone and choose **Aural** from the devices."
+            systemImage: "hifispeaker.and.appletv",
+            title: "Pair with Spotify",
+            message: "Open Spotify on your phone or another computer and choose **Aural** from the devices. This is needed only once."
         ) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Waiting for your phone…").foregroundStyle(.white.opacity(0.7))
+                Text("Waiting for Spotify…").foregroundStyle(.white.opacity(0.7))
             }
             .font(.callout)
             .padding(.top, 4)
 
             if setup.localNetwork == .blocked {
-                Text("Aural needs Local Network access so your phone can find it. Allow it when macOS asks, or turn on Aural in System Settings, then quit and reopen Aural.")
+                Text("Aural needs Local Network access so Spotify on your other devices can find it. Allow it when macOS asks, or turn on Aural in System Settings, then quit and reopen Aural.")
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -261,7 +294,7 @@ private struct PairStepView: View {
             }
 
             if setup.showPairingHint {
-                Text("Can't see Aural, or it fails to connect? Make sure your phone is on the same Wi-Fi. If Spotify shows an error, your API key may be wrong.")
+                Text("Can't see Aural, or it fails to connect? Make sure the other device is on the same Wi-Fi. If Spotify shows an error, your API key may be wrong.")
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -269,9 +302,7 @@ private struct PairStepView: View {
             }
         } actions: {
             if setup.localNetwork == .blocked {
-                SecondaryButton(title: "Open Local Network Settings", systemImage: "gear") {
-                    openURL(LocalNetworkAccess.settingsURL)
-                }
+                LinkButton(title: "Open Local Network Settings", url: LocalNetworkAccess.settingsURL)
             }
             if setup.showPairingHint {
                 TextAction(title: "Enter a Different Key") { setup.showKeyStep(error: nil) }
@@ -284,7 +315,6 @@ private struct PairStepView: View {
 
 private struct LibraryStepView: View {
     @Bindable var setup: SetupModel
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         StepLayout(
@@ -292,9 +322,8 @@ private struct LibraryStepView: View {
             title: "Connect Your Library",
             message: "For playlists, Liked Songs, albums and search, Aural uses the Spotify Web API through your own free developer app."
         ) {
-            SecondaryButton(title: "Open Spotify for Developers", systemImage: "safari") {
-                openURL(SpotifyAuth.dashboardURL)
-            }
+
+            LinkButton(title: "Open Spotify for Developers", url: SpotifyAuth.dashboardURL)
             .padding(.top, 4)
 
             VStack(spacing: 6) {
@@ -311,13 +340,14 @@ private struct LibraryStepView: View {
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(IconButtonStyle(size: 12, frame: 24))
+                    .help("Copy the redirect URI")
                 }
                 Text("Then paste the app's **Client ID**:")
             }
             .font(.callout)
             .foregroundStyle(.white.opacity(0.85))
 
-            GlassField(placeholder: "Client ID", text: $setup.clientIDText, onSubmit: signIn)
+            SetupField(placeholder: "Client ID", text: $setup.clientIDText, onSubmit: signIn)
                 .disabled(setup.isSigningIn)
 
             if setup.isSigningIn {

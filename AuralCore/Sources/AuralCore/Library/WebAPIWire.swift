@@ -170,6 +170,7 @@ extension PlaylistSummary {
             imageURL: WebAPIWire.imageURL(playlist.images),
             coverURL: WebAPIWire.coverURL(playlist.images),
             trackCount: playlist.items?.total ?? playlist.tracks?.total,
+            isOwnedByUser: isOwn,
             canListTracks: isOwn || playlist.collaborative == true
         )
     }

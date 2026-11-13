@@ -18,48 +18,36 @@ struct SearchView: View {
 
       List {
         if !results.tracks.isEmpty {
-          Section {
-            ForEach(Array(results.tracks.enumerated()), id: \.element.id) { index, track in
-              Button {
-                model.play(tracks: results.tracks, startingAt: index)
-              } label: {
-                TrackRow(track: track)
-              }
-              .buttonStyle(.plain)
-              .libraryRow()
+          SearchSectionHeader(title: "Songs")
+          ForEach(Array(results.tracks.enumerated()), id: \.element.id) { index, track in
+            Button {
+              model.play(tracks: results.tracks, startingAt: index)
+            } label: {
+              TrackRow(track: track)
             }
-          } header: {
-            SearchSectionHeader(title: "Songs")
+            .buttonStyle(.plain)
+            .libraryRow()
           }
         }
         if !results.artists.isEmpty {
-          Section {
-            ForEach(results.artists) { artist in
-              PageLink(value: artist) { ArtistRow(artist: artist) }
-                .libraryRow()
-            }
-          } header: {
-            SearchSectionHeader(title: "Artists")
+          SearchSectionHeader(title: "Artists")
+          ForEach(results.artists) { artist in
+            PageLink(value: artist) { ArtistRow(artist: artist) }
+              .libraryRow()
           }
         }
         if !results.albums.isEmpty {
-          Section {
-            ForEach(results.albums) { album in
-              PageLink(value: album) { AlbumRow(album: album) }
-                .libraryRow()
-            }
-          } header: {
-            SearchSectionHeader(title: "Albums")
+          SearchSectionHeader(title: "Albums")
+          ForEach(results.albums) { album in
+            PageLink(value: album) { AlbumRow(album: album) }
+              .libraryRow()
           }
         }
         if !results.playlists.isEmpty {
-          Section {
-            ForEach(results.playlists) { playlist in
-              PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
-                .libraryRow()
-            }
-          } header: {
-            SearchSectionHeader(title: "Playlists")
+          SearchSectionHeader(title: "Playlists")
+          ForEach(results.playlists) { playlist in
+            PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
+              .libraryRow()
           }
         }
         if isSearching {
@@ -91,6 +79,8 @@ struct SearchView: View {
 }
 
 /// iOS-style section title: large, bold, left-aligned, not uppercased.
+/// A plain list row rather than a `Section` header, so it has the same side
+/// insets as the rows, no separator line under it, and room around it.
 private struct SearchSectionHeader: View {
   let title: String
 
@@ -98,7 +88,10 @@ private struct SearchSectionHeader: View {
     Text(title)
       .font(.system(size: 17, weight: .bold))
       .foregroundStyle(.white)
-      .textCase(nil)
-      .padding(.top, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, 12)
+      .padding(.bottom, 6)
+      .libraryRow()
+      .accessibilityAddTraits(.isHeader)
   }
 }

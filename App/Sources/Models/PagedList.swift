@@ -11,6 +11,10 @@ final class PagedList<Item: Sendable & Identifiable> {
     private(set) var isLoading = false
     private(set) var error: (any Error)?
     private(set) var hasLoaded = false
+    /// Number of items on Spotify (all pages), once the first page has loaded.
+    private(set) var total: Int?
+    /// True once every page has loaded.
+    private(set) var isComplete = false
 
     @ObservationIgnored private var nextOffset: Int? = 0
     @ObservationIgnored private let load: (Int) async throws -> Page<Item>
@@ -38,6 +42,8 @@ final class PagedList<Item: Sendable & Identifiable> {
             let page = try await load(offset)
             items.append(contentsOf: page.items)
             nextOffset = page.nextOffset
+            total = page.total
+            isComplete = page.nextOffset == nil
             error = nil
         } catch {
             // Switching tabs cancels the view's task and with it the request.
@@ -55,6 +61,7 @@ final class PagedList<Item: Sendable & Identifiable> {
         items = []
         nextOffset = 0
         hasLoaded = false
+        isComplete = false
         await loadMore()
     }
 

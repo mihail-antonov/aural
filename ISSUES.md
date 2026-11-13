@@ -31,21 +31,23 @@ NEW:
 
 LATEST:
 
-1. When I go inside a playlist/album it's not smoothly switching the screen, it's just instantly shows.
-2. Dividers in the search - Songs, Artists and so on need more padding on the left and right to match the rest of the app paddings
-3. Also lists after every divider in the search needs padding-top as it's super close to the divider name
-4. Remove the border bottom of the dividers in the search results
-5. Rework the play/pause button, play and shuffle buttons inside the other pages to use the native Liquid Glass button that Apple are using - not some custom one, like it is now.
-6. In the onboarding use liquid glass native buttons for both submit (with peach color) and cancel (with default transparent liquid glass button)
-7. When closing the ADD YOUR API screen, the Continue button looks like it moves down and fades out, it should not move down, it should just fade out.
-8. When inside a playlist/album, screen instantly snaps to the playlist/album listing page and moves to the selected screen, that should not be the case, show the newly selected screen and then reset to playlist/album listing page, because it looks super glitchy now and it's visible.
-9. Show songs count and listening time (the same as in Spotify) in album/playlist page.
-10. Onboarding content should be centered vertically, but keep the buttons on the bottom of the app.
-11. When I switch the song, the play/pause button switches it state and glitches, same goes for the heart icon - when I'm playing songs from my Liked playlists and I switch them one after another, the heart is unfilled and then instantly is filled, same goes for the play/pause button, if the play is enabled (pause icon shown) and I click next song, the button goes to play icon and instantly switches back to pause icon.
-12. Switch the places of replay icon and heart icon.
-13. Switch the places of shuffle and search icon.
-14. heart icon have no hover - use the same effect as we do on the other icons - reduce the default opacity and when hovered, we make it opacity: 1
-15. If the progress bar is at some point and I click next arrow, it glitches and moves back to the start, can we refine that reset as it's super glitchy right now.
-16. make the song progress animation a little faster.
-17. Heart icon should be a + which should function as Add to playlist, not just add to Liked.
-18. Add a tooltip on every icon on hover
+1. [x] When I go inside a playlist/album it's not smoothly switching the screen, it's just instantly shows.
+2. [x] Dividers in the search - Songs, Artists and so on need more padding on the left and right to match the rest of the app paddings
+3. [x] Also lists after every divider in the search needs padding-top as it's super close to the divider name
+4. [x] Remove the border bottom of the dividers in the search results
+5. [x] Rework the play/pause button, play and shuffle buttons inside the other pages to use the native Liquid Glass button that Apple are using - not some custom one, like it is now.
+6. [x] In the onboarding use liquid glass native buttons for both submit (with peach color) and cancel (with default transparent liquid glass button)
+7. [x] When closing the ADD YOUR API screen, the Continue button looks like it moves down and fades out, it should not move down, it should just fade out.
+8. [x] When inside a playlist/album, screen instantly snaps to the playlist/album listing page and moves to the selected screen, that should not be the case, show the newly selected screen and then reset to playlist/album listing page, because it looks super glitchy now and it's visible.
+9. [x] Show songs count and listening time (the same as in Spotify) in album/playlist page.
+10. [x] Onboarding content should be centered vertically, but keep the buttons on the bottom of the app.
+11. [x] When I switch the song, the play/pause button switches it state and glitches, same goes for the heart icon - when I'm playing songs from my Liked playlists and I switch them one after another, the heart is unfilled and then instantly is filled, same goes for the play/pause button, if the play is enabled (pause icon shown) and I click next song, the button goes to play icon and instantly switches back to pause icon.
+12. [x] Switch the places of replay icon and heart icon.
+13. [x] Switch the places of shuffle and search icon.
+14. [x] heart icon have no hover - use the same effect as we do on the other icons - reduce the default opacity and when hovered, we make it opacity: 1
+15. [x] If the progress bar is at some point and I click next arrow, it glitches and moves back to the start, can we refine that reset as it's super glitchy right now.
+16. [x] make the song progress animation a little faster.
+17. [x] Heart icon should be a + which should function as Add to playlist, not just add to Liked. (Done as Spotify's + / check for Liked Songs only; adding to playlists dropped to keep Aural lightweight.)
+18. [x] Add a tooltip on every icon on hover
+19. [x] Playlists and albums should have Add to Library, same as on Spotify, so they can be saved for later listening (next to the shuffle and play button on their corresponding pages)
+20. [x] Is the phone pairing really necessary, can we skip that step? — Answer: yes, once. Soloist has no login of its own; Spotify only signs it in when the device is picked in an official Spotify app (Connect). The session is then stored and restored on every launch, so the step never appears again unless the pairing is lost. There is no API to skip it.

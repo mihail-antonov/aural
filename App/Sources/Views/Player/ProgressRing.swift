@@ -6,12 +6,15 @@ import SwiftUI
 /// a thick rounded track, an accent fill and a glowing accent knob.
 ///
 /// Dragging the knob seeks live; clicking the ring glides the knob to the
-/// clicked point. VoiceOver and the arrow keys can adjust it too.
+/// clicked point. When the track changes, the knob glides back to the start
+/// instead of jumping. VoiceOver and the arrow keys can adjust it too.
 ///
 /// There is no system control for this, so it is drawn with shapes.
 struct ProgressRing: View {
     /// 0…1, from the playback state.
     let progress: Double
+    /// The track `progress` belongs to; a change glides the knob back to 0.
+    let trackID: String?
     let durationMs: Int
     let canSeek: Bool
     let onSeek: (Int) -> Void
@@ -21,7 +24,8 @@ struct ProgressRing: View {
     private static let seekHold: Duration = .seconds(2)
     /// A press that moves less than this is a click, not a drag.
     private static let dragThreshold = 3.0
-    private static let glide = Animation.smooth(duration: 0.4)
+    private static let glideDuration = 0.3
+    private static let glide = Animation.smooth(duration: glideDuration)
 
     /// Progress while dragging.
     @State private var dragProgress: Double?
@@ -29,6 +33,9 @@ struct ProgressRing: View {
     /// (otherwise the ring would jump back for a moment and then forward).
     @State private var seekTarget: Double?
     @State private var seekTargetTask: Task<Void, Never>?
+    /// The seek target is kept at least until its glide has finished:
+    /// switching to the reported position mid-glide would make it jump.
+    @State private var holdUntil = Date.distantPast
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
@@ -54,9 +61,15 @@ struct ProgressRing: View {
         .focusEffectDisabled()
         .onKeyPress(.leftArrow) { step(-Self.keyboardStepMs) }
         .onKeyPress(.rightArrow) { step(Self.keyboardStepMs) }
-        .onChange(of: progress) { _, newValue in
-            // Soloist caught up with the seek: follow the real position again.
-            if let target = seekTarget, abs(newValue - target) < 0.02 { clearSeekTarget() }
+        .onChange(of: Reported(trackID: trackID, progress: progress)) { old, new in
+            if old.trackID != new.trackID {
+                // Not on launch (no previous track): the restored position is real.
+                guard old.trackID != nil, new.trackID != nil else { return }
+                trackChanged(from: seekTarget ?? old.progress)
+            } else if let target = seekTarget, abs(new.progress - target) < 0.02, Date.now >= holdUntil {
+                // Soloist caught up with the seek: follow the real position again.
+                clearSeekTarget()
+            }
         }
         .accessibilityElement()
         .accessibilityLabel("Playback position")
@@ -100,13 +113,35 @@ struct ProgressRing: View {
     }
 
     private func seek(to fraction: Double) {
+        hold(at: fraction)
+        onSeek(Int(fraction * Double(durationMs)))
+    }
+
+    /// Shows `fraction` until the reported position matches it (at most `seekHold`).
+    private func hold(at fraction: Double) {
         seekTarget = fraction
+        holdUntil = .now + Self.glideDuration
         seekTargetTask?.cancel()
         seekTargetTask = Task {
             try? await Task.sleep(for: Self.seekHold)
             if !Task.isCancelled { seekTarget = nil }
         }
-        onSeek(Int(fraction * Double(durationMs)))
+    }
+
+    /// A new track starts at 0, but the first report after a skip can still
+    /// carry the old position. The knob stays where it was for one frame,
+    /// then glides back to the start, and follows the new track's real
+    /// position once Soloist reports it.
+    private func trackChanged(from previous: Double) {
+        guard dragProgress == nil else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { hold(at: previous) }
+        Task {
+            // The next frame, so the glide starts from the old position.
+            try? await Task.sleep(for: .milliseconds(16))
+            withAnimation(Self.glide) { hold(at: 0) }
+        }
     }
 
     private func clearSeekTarget() {
@@ -122,6 +157,12 @@ struct ProgressRing: View {
         withAnimation(Self.glide) { seek(to: target / Double(durationMs)) }
         return .handled
     }
+}
+
+/// What `onChange` compares: a new track and a new position can arrive together.
+private struct Reported: Equatable {
+    let trackID: String?
+    let progress: Double
 }
 
 /// Draws the track, the fill and the knob for one progress value.
@@ -213,7 +254,7 @@ private struct RingDrawing: View, Animatable {
 }
 
 #Preview {
-    ProgressRing(progress: 0.35, durationMs: 215_000, canSeek: true) { _ in }
+    ProgressRing(progress: 0.35, trackID: "preview", durationMs: 215_000, canSeek: true) { _ in }
         .frame(width: 240, height: 240)
         .padding()
         .background(.black)

@@ -34,12 +34,29 @@ final class AppModel {
     /// Shown in the player when something went wrong (e.g. Soloist stopped).
     private(set) var problem: String?
 
+    /// Whether the play button shows "pause". Follows the playback status,
+    /// but Soloist briefly reports a non-playing status while it switches
+    /// tracks; showing that would make the button flicker. So a change to
+    /// "not playing" is applied after a short delay (unless the user paused).
+    private(set) var showsPlaying = false
+
     /// Spotify Web API access (library, search, likes). Nil until connected.
     private(set) var library: LibraryService?
+    /// Last known Liked Songs state, with the track it belongs to.
+    private var likedState: (uri: String, liked: Bool)?
     /// Whether the current track is in Liked Songs; nil while unknown.
-    private(set) var isCurrentTrackLiked: Bool?
+    var isCurrentTrackLiked: Bool? {
+        guard let likedState, likedState.uri == playback.track?.id else { return nil }
+        return likedState.liked
+    }
+    /// For the player's icon: the previous track's state is kept until the
+    /// new one is known, so the icon does not flash between tracks.
+    var showsLiked: Bool { likedState?.liked ?? false }
     /// Increases after every like/unlike so the Liked Songs list can reload.
     private(set) var likedSongsVersion = 0
+    /// Increases after an album or playlist is saved / removed, so the
+    /// library's lists can reload.
+    private(set) var savedCollectionsVersion = 0
 
     /// Pages of the main window. The player's list button opens the library,
     /// its search button the search; their back chevron (or Esc) returns to
@@ -61,6 +78,12 @@ final class AppModel {
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
     @ObservationIgnored private var nowPlaying: NowPlayingController?
     @ObservationIgnored private var likeTask: Task<Void, Never>?
+    @ObservationIgnored private var settleTask: Task<Void, Never>?
+    /// Set when the user presses play / pause, until Soloist confirms it.
+    @ObservationIgnored private var userPlayIntent: Bool?
+    /// Tracks known to be in Liked Songs because they were played from it.
+    /// Their heart shows right away. Bounded by the loaded Liked Songs list.
+    @ObservationIgnored private var knownLikedURIs: Set<String> = []
 
     private let log = Logger(subsystem: "app.aural", category: "app")
 
@@ -147,6 +170,7 @@ final class AppModel {
         case .stateChanged(let state):
             let trackChanged = state.track?.id != playback.track?.id
             playback = state
+            updateShowsPlaying(for: state.status)
             if trackChanged {
                 loadArtwork(for: state.track)
                 refreshLiked(for: state.track)
@@ -191,6 +215,35 @@ final class AppModel {
         }
     }
 
+    private func updateShowsPlaying(for status: PlaybackStatus) {
+        // Buffering means "about to play", e.g. right after a skip.
+        let isPlaying = status == .playing || status == .buffering
+        if let intent = userPlayIntent {
+            // The user just pressed play / pause: wait for Soloist to confirm.
+            if isPlaying == intent { settleTask?.cancel(); userPlayIntent = nil; showsPlaying = isPlaying }
+            return
+        }
+        if isPlaying {
+            settleTask?.cancel()
+            settleTask = nil
+            showsPlaying = true
+        } else if showsPlaying, settleTask == nil {
+            settleShowsPlaying(after: .milliseconds(700))
+        }
+    }
+
+    /// After `delay`, shows the real status (if nothing confirmed it earlier).
+    private func settleShowsPlaying(after delay: Duration) {
+        settleTask?.cancel()
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            settleTask = nil
+            userPlayIntent = nil
+            showsPlaying = playback.status == .playing || playback.status == .buffering
+        }
+    }
+
     // MARK: - Library
 
     private var needsLibrarySetup: Bool {
@@ -222,45 +275,76 @@ final class AppModel {
         log.error("Library request failed: \(error.localizedDescription, privacy: .public)")
         if case .reauthorizationRequired = error as? WebAPIError {
             library = nil
-            setup.showLibraryStep(error: error.localizedDescription)
+            setup.requireLibraryLogin(error: error.localizedDescription)
             phase = .setup
         }
     }
 
+    /// Asks Spotify whether the new track is liked. Until it answers, the
+    /// icon keeps the previous state (no flash), and tracks played from
+    /// Liked Songs show as liked right away.
     private func refreshLiked(for track: Track?) {
         likeTask?.cancel()
-        isCurrentTrackLiked = nil
         guard let library, let uri = track?.id else { return }
+        if knownLikedURIs.contains(uri) { likedState = (uri, true) }
         likeTask = Task { [weak self] in
             do {
-                let liked = try await library.isLiked(uri)
+                let liked = try await library.isSaved(uri)
                 guard !Task.isCancelled else { return }
-                self?.isCurrentTrackLiked = liked
+                self?.likedState = (uri, liked)
             } catch {
                 self?.handleLibraryError(error)
             }
         }
     }
 
-    /// Updates the heart immediately and reverts it if Spotify refuses.
+    /// Adds the current track to Liked Songs or removes it. Updates the icon
+    /// immediately and reverts it if Spotify refuses.
     func toggleLike() {
         guard let library, let uri = playback.track?.id, let liked = isCurrentTrackLiked else {
             log.notice("Like ignored: library \(self.library != nil), liked state \(String(describing: self.isCurrentTrackLiked))")
             return
         }
-        isCurrentTrackLiked = !liked
+        likedState = (uri, !liked)
+        if liked { knownLikedURIs.remove(uri) }
         Task {
             do {
-                try await library.setLiked(!liked, trackURI: uri)
+                try await library.setSaved(!liked, uri: uri)
                 // Ask Spotify for the result, so the log shows what really happened.
-                let now = try await library.isLiked(uri)
-                if playback.track?.id == uri { isCurrentTrackLiked = now }
+                let now = try await library.isSaved(uri)
+                if likedState?.uri == uri { likedState = (uri, now) }
                 log.notice("\(liked ? "Unliked" : "Liked", privacy: .public) \(uri, privacy: .public); Spotify now reports liked = \(now)")
                 likedSongsVersion += 1
             } catch {
-                if playback.track?.id == uri { isCurrentTrackLiked = liked }
+                if likedState?.uri == uri { likedState = (uri, liked) }
                 handleLibraryError(error)
             }
+        }
+    }
+
+    enum SaveOutcome {
+        /// The item's state in the library afterwards.
+        case saved(Bool)
+        /// Spotify refused (403): e.g. saving a playlist may need a scope
+        /// Aural does not ask for. The button hides itself.
+        case notAllowed
+        case failed
+    }
+
+    /// Saves an album or playlist to the library, or removes it.
+    func setSaved(_ saved: Bool, uri: String) async -> SaveOutcome {
+        guard let library else { return .failed }
+        do {
+            try await library.setSaved(saved, uri: uri)
+            let now = try await library.isSaved(uri)
+            savedCollectionsVersion += 1
+            return .saved(now)
+        } catch .forbidden(let message) {
+            log.notice("Saving \(uri, privacy: .public) not allowed: \(message, privacy: .public)")
+            return .notAllowed
+        } catch {
+            handleLibraryError(error)
+            return .failed
         }
     }
 
@@ -291,21 +375,28 @@ final class AppModel {
     }
 
     /// Plays `tracks[index]` and then the rest of the list in order, and
-    /// shows the player.
-    func play(tracks: [TrackSummary], startingAt index: Int) {
+    /// shows the player. `fromLikedSongs`: the tracks are known to be liked.
+    func play(tracks: [TrackSummary], startingAt index: Int, fromLikedSongs: Bool = false) {
         guard tracks.indices.contains(index) else { return }
         let uris = tracks.map(\.uri)
+        knownLikedURIs = fromLikedSongs ? Set(uris) : []
         send { try await $0.play(trackURIs: uris, startingAt: index) }
         page = .player
     }
 
     // MARK: - Commands
 
+    /// Uses what the button shows, and switches it right away.
     func togglePlayPause() {
-        if playback.status == .playing {
-            send { try await $0.pause() }
-        } else {
+        let play = !showsPlaying
+        showsPlaying = play
+        userPlayIntent = play
+        // If Soloist never confirms (e.g. nothing to resume), show the truth.
+        settleShowsPlaying(after: .seconds(2))
+        if play {
             send { try await $0.resume() }
+        } else {
+            send { try await $0.pause() }
         }
     }
 

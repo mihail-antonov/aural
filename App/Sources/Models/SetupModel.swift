@@ -93,14 +93,18 @@ final class SetupModel {
         startPairingWatch()
     }
 
+    /// Back to the player. The step's state (e.g. `isChangingSettings`, which
+    /// decides whether "Cancel" shows) is left as it is: the step is still
+    /// fading out, and changing it now would move its buttons. It is reset
+    /// when setup opens again.
     private func finish() {
-        isChangingSettings = false
         delegate?.setupFinished()
     }
 
     /// Opens one step from the player's settings menu.
     func beginSettingsChange(_ step: Step) {
         isChangingSettings = true
+        keyText = ""
         switch step {
         case .key: showKeyStep(error: nil)
         case .library: showLibraryStep(error: nil)
@@ -111,10 +115,6 @@ final class SetupModel {
     /// Back to the player without changing anything.
     func cancelSettingsChange() {
         stopPairingWatch()
-        isChangingSettings = false
-        keyText = ""
-        keyError = nil
-        libraryError = nil
         finish()
     }
 
@@ -183,12 +183,18 @@ final class SetupModel {
 
     // MARK: - Step 4: library
 
-    /// Also used when the Web API login expired (after 6 months) and the user must sign in again.
     func showLibraryStep(error: String?) {
         stopPairingWatch()
         libraryError = error
         if clientIDText.isEmpty, let saved = WebAPICredentials.load() { clientIDText = saved.clientID }
         step = .library
+    }
+
+    /// The Web API login expired (after 6 months): the user must sign in
+    /// again before the library works (no "Cancel").
+    func requireLibraryLogin(error: String) {
+        isChangingSettings = false
+        showLibraryStep(error: error)
     }
 
     /// Opens the browser for the Spotify login and waits for the redirect.
@@ -226,7 +232,7 @@ final class SetupModel {
         pendingKey = nil
         Task { await delegate?.setupStopSoloist() }
         showKeyStep(error: """
-            Spotify rejected this API key, so your phone could not connect. \
+            Spotify rejected this API key, so Spotify could not connect to Aural. \
             Check that you copied the whole key from the Soloist page, or generate a new one.
             """)
     }

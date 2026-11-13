@@ -63,6 +63,7 @@ enum WebAPICheck {
             }
             if let followed = others.first {
                 say("\(await api.status("GET", "playlists/\(followed.id)/items", query: [URLQueryItem(name: "limit", value: "50")]))  GET /playlists/{followed}/items  (403 expected)")
+                await checkContains("followed playlist", "spotify:playlist:\(followed.id)", api: api, say: say)
             }
         }
 
@@ -73,6 +74,7 @@ enum WebAPICheck {
             say("     saved albums: total \(albums.total)")
             if let album = albums.items.first {
                 say("\(await api.status("GET", "albums/\(album.album.id)/tracks", query: limit50))  GET /albums/{id}/tracks?limit=50")
+                await checkContains("saved album", "spotify:album:\(album.album.id)", api: api, say: say)
             }
         }
 
@@ -94,6 +96,17 @@ enum WebAPICheck {
 
         if let me {
             say("     Liked Songs context URI to try with Soloist: spotify:user:\(me.id):collection")
+        }
+    }
+
+    /// Read-only: `/me/library/contains` with an album or playlist URI
+    /// (used by the Save to Library button). Expected: [true].
+    private static func checkContains(_ label: String, _ uri: String, api: WebAPIClient, say: (String) -> Void) async {
+        do {
+            let result = try await api.get("me/library/contains", query: [URLQueryItem(name: "uris", value: uri)], as: [Bool].self)
+            say("200  GET /me/library/contains (\(label))  → \(result)  ([true] expected)")
+        } catch {
+            say("ERR  GET /me/library/contains (\(label)): \(error.localizedDescription)")
         }
     }
 

@@ -27,7 +27,9 @@ struct TrackRow: View {
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
-                .frame(width: 24)
+                // Starts at the row's edge, like the covers in other lists;
+                // wide enough for two digits or the playing indicator.
+                .frame(width: 20, alignment: .leading)
             } else {
                 Thumbnail(url: track.imageURL, size: RowMetrics.trackArtwork)
                     .overlay {

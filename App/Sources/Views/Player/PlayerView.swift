@@ -117,6 +117,7 @@ private struct CoverWithRing: View {
                 let elapsed = model.playback.position.current(at: context.date, durationMs: duration)
                 ProgressRing(
                     progress: duration > 0 ? Double(elapsed) / Double(duration) : 0,
+                    trackID: model.playback.track?.id,
                     durationMs: duration,
                     canSeek: model.playback.availableActions.contains(.seek),
                     onSeek: model.seek(toMs:)

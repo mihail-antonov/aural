@@ -88,15 +88,20 @@ public actor LibraryService {
         return paging.tracks?.page { TrackSummary(wire: $0) } ?? .empty
     }
 
-    // MARK: - Liked Songs
+    // MARK: - Saved items (Liked Songs, saved albums and playlists)
 
-    public func isLiked(_ trackURI: String) async throws(WebAPIError) -> Bool {
-        let result: [Bool] = try await api.get("me/library/contains", query: [URLQueryItem(name: "uris", value: trackURI)])
+    /// Whether the item is in the user's library: a track in Liked Songs, a
+    /// saved album or a saved (followed) playlist. Takes any of those URIs.
+    public func isSaved(_ uri: String) async throws(WebAPIError) -> Bool {
+        let result: [Bool] = try await api.get("me/library/contains", query: [URLQueryItem(name: "uris", value: uri)])
         return result.first ?? false
     }
 
-    public func setLiked(_ liked: Bool, trackURI: String) async throws(WebAPIError) {
-        try await api.send(liked ? "PUT" : "DELETE", "me/library", query: [URLQueryItem(name: "uris", value: trackURI)])
+    /// Saves or removes a track (Liked Songs), album or playlist. Saving a
+    /// playlist may need a scope Aural does not request; Spotify then
+    /// answers 403 (`.forbidden`).
+    public func setSaved(_ saved: Bool, uri: String) async throws(WebAPIError) {
+        try await api.send(saved ? "PUT" : "DELETE", "me/library", query: [URLQueryItem(name: "uris", value: uri)])
     }
 
     // MARK: - Helpers

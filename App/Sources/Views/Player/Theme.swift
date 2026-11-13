@@ -6,8 +6,10 @@ enum Theme {
     /// Warm peach accent: progress ring, knob, time highlight, heart, active toggles.
     static let accent = Color(red: 0xF0 / 255, green: 0xB8 / 255, blue: 0x78 / 255)
 
+    /// Icons that are not hovered are slightly see-through.
+    static let iconOpacity = 0.7
     /// Icons that are not highlighted: white, slightly see-through.
-    static let icon = Color.white.opacity(0.7)
+    static let icon = Color.white.opacity(iconOpacity)
 
     /// Opacity of secondary white text (artist, subtitles). With the system's
     /// Increase Contrast setting it is close to full white.

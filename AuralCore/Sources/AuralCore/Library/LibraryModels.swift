@@ -13,6 +13,9 @@ public struct PlaylistSummary: Sendable, Identifiable, Hashable {
     /// Larger image for the playlist's page header (~300 px).
     public let coverURL: URL?
     public let trackCount: Int?
+    /// The user's own playlist. It is always in their library, so Aural
+    /// offers no "save" / "remove" for it (removing would delete it).
+    public let isOwnedByUser: Bool
     /// Spotify only returns the tracks of playlists the user owns or
     /// collaborates on. Others can be played, but their tracks are not listed.
     public let canListTracks: Bool

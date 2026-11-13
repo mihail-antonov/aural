@@ -24,9 +24,11 @@ struct WebAPIWireTests {
         #expect(page.items.count == 2)
         #expect(page.nextOffset == 3)
         #expect(page.items[0].canListTracks)
+        #expect(page.items[0].isOwnedByUser)
         #expect(page.items[0].trackCount == 12)
         #expect(page.items[0].imageURL == URL(string: "https://img/60")) // 60 px is enough for a 72 px thumbnail
         #expect(!page.items[1].canListTracks)
+        #expect(!page.items[1].isOwnedByUser)
         #expect(page.items[1].trackCount == 30) // old `tracks` field still read
         #expect(page.items[1].imageURL == nil)
     }

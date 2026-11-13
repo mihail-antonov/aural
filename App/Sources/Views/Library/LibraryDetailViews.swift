@@ -4,7 +4,20 @@ import SwiftUI
 struct PlaylistDetailView: View {
     let playlist: PlaylistSummary
     let model: AppModel
+    /// Nil for playlists whose tracks Spotify does not share.
     @State private var tracks: PagedList<TrackSummary>?
+
+    init(playlist: PlaylistSummary, model: AppModel) {
+        self.playlist = playlist
+        self.model = model
+        // Created here, not in `.task`: the page must have its final content
+        // when it starts sliding in. Swapping it in a moment later showed
+        // "Tracks not available" briefly, and the new list appeared in place
+        // instead of sliding with the page.
+        _tracks = State(initialValue: playlist.canListTracks ? model.library.map { library in
+            PagedList(load: { try await library.playlistTracks(playlist, offset: $0) }, onError: model.handleLibraryError)
+        } : nil)
+    }
 
     var body: some View {
         Group {
@@ -28,11 +41,6 @@ struct PlaylistDetailView: View {
                 .libraryList()
             }
         }
-        .navigationTitle(playlist.name)
-        .task {
-            guard tracks == nil, playlist.canListTracks, let library = model.library else { return }
-            tracks = PagedList(load: { try await library.playlistTracks(playlist, offset: $0) }, onError: model.handleLibraryError)
-        }
     }
 
     private var header: some View {
@@ -40,6 +48,10 @@ struct PlaylistDetailView: View {
             imageURL: playlist.coverURL ?? playlist.imageURL,
             title: playlist.name,
             subtitle: playlist.ownerName.map { "Playlist · \($0)" } ?? "Playlist",
+            details: tracks.flatMap { CollectionHeader.details(of: $0) }
+                ?? playlist.trackCount.map { CollectionHeader.details(count: $0, durationMs: nil) },
+            // The user's own playlists are always in their library.
+            saveURI: playlist.isOwnedByUser ? nil : playlist.uri,
             play: { model.play(uri: playlist.uri, shuffled: false) },
             shuffle: { model.play(uri: playlist.uri, shuffled: true) }
         )
@@ -69,6 +81,8 @@ struct AlbumDetailView: View {
                         imageURL: album.coverURL ?? album.imageURL,
                         title: album.name,
                         subtitle: album.artists.joined(separator: ", "),
+                        details: CollectionHeader.details(of: tracks),
+                        saveURI: album.uri,
                         play: { model.play(uri: album.uri, shuffled: false) },
                         shuffle: { model.play(uri: album.uri, shuffled: true) }
                     )
@@ -78,7 +92,6 @@ struct AlbumDetailView: View {
                 }
             }
         }
-        .navigationTitle(album.name)
     }
 }
 
@@ -116,19 +129,23 @@ struct ArtistDetailView: View {
                 }
             }
         }
-        .navigationTitle(artist.name)
     }
 }
 
 /// Top of a playlist / album / artist page (and Liked Songs), like iOS Music:
-/// a large cover, the title and a subtitle, then icon-only Liquid Glass
-/// buttons — Play (prominent) and Shuffle.
+/// a large cover, the title, a subtitle and the song count with the total
+/// time, then round system Liquid Glass buttons — Play (accent icon),
+/// Shuffle and, for albums and other people's playlists, Save to Library.
 struct CollectionHeader: View {
     let imageURL: URL?
     let title: String
     let subtitle: String
+    /// "12 songs, 48 min 3 sec".
+    var details: String?
     var isCircular = false
     var canPlay = true
+    /// Album or playlist URI for the save button; nil hides it.
+    var saveURI: String?
     let play: () -> Void
     let shuffle: () -> Void
 
@@ -155,21 +172,36 @@ struct CollectionHeader: View {
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.6))
                 .lineLimit(1)
+            if let details {
+                Text(details)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+            }
 
             // Nearby glass buttons are grouped, so they render together.
             GlassEffectContainer {
-                HStack(spacing: 16) {
-                    // Same style as the player's play/pause button: smooth
-                    // hover and press. Play is tinted with the accent color.
-                    Button(action: play) { icon("play.fill") }
-                        .buttonStyle(PlayButtonStyle(size: 52, tint: Theme.accent, tintOpacity: 0.45))
-                        .accessibilityLabel("Play")
+                HStack(spacing: 14) {
+                    if let saveURI {
+                        SaveToLibraryButton(uri: saveURI)
+                    }
+                    // Plain system glass like Shuffle; the peach icon marks the main action.
+                    Button(action: play) {
+                        icon("play.fill").foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.glass)
+                    .accessibilityLabel("Play")
+                    .help("Play")
+                    .disabled(!canPlay)
                     Button(action: shuffle) { icon("shuffle") }
-                        .buttonStyle(PlayButtonStyle(size: 52))
+                        .buttonStyle(.glass)
                         .accessibilityLabel("Shuffle")
+                        .help("Shuffle")
+                        .disabled(!canPlay)
                 }
+                .buttonBorderShape(.circle)
+                .controlSize(.extraLarge)
                 .foregroundStyle(.white)
-                .disabled(!canPlay)
             }
             .padding(.top, 8)
         }
@@ -179,8 +211,70 @@ struct CollectionHeader: View {
         .padding(.bottom, 10)
     }
 
+    /// "12 songs, 48 min 3 sec" once every page has loaded; only the count before.
+    static func details(of tracks: PagedList<TrackSummary>) -> String? {
+        guard let total = tracks.total else { return nil }
+        return details(count: total, durationMs: tracks.isComplete ? tracks.items.reduce(0) { $0 + $1.durationMs } : nil)
+    }
+
+    static func details(count: Int, durationMs: Int?) -> String {
+        let songs = count == 1 ? "1 song" : "\(count) songs"
+        guard let durationMs, durationMs > 0 else { return songs }
+        let seconds = durationMs / 1000
+        let (hours, minutes) = (seconds / 3600, seconds % 3600 / 60)
+        // Like Spotify: hours and minutes for long lists, otherwise minutes and seconds.
+        let time = hours > 0 ? "\(hours) hr \(minutes) min" : "\(minutes) min \(seconds % 60) sec"
+        return "\(songs), \(time)"
+    }
+
     private func icon(_ systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 20, weight: .semibold))
+            .frame(width: 30, height: 30)
+    }
+}
+
+/// "+" / check button that saves an album or playlist to the user's library
+/// (like Spotify's), or removes it.
+private struct SaveToLibraryButton: View {
+    @Environment(AppModel.self) private var model
+    let uri: String
+    /// Nil while unknown (loading, or the check failed).
+    @State private var isSaved: Bool?
+    @State private var isBusy = false
+    /// Spotify refused to save this item (see `AppModel.SaveOutcome`).
+    @State private var isNotAllowed = false
+
+    var body: some View {
+        if !isNotAllowed { button }
+    }
+
+    private var button: some View {
+        Button {
+            guard let isSaved else { return }
+            isBusy = true
+            Task {
+                switch await model.setSaved(!isSaved, uri: uri) {
+                case .saved(let now): self.isSaved = now
+                case .notAllowed: withAnimation { isNotAllowed = true }
+                case .failed: break
+                }
+                isBusy = false
+            }
+        } label: {
+            Image(systemName: isSaved == true ? "checkmark" : "plus")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(isSaved == true ? Theme.accent : .white)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.glass)
+        .disabled(isSaved == nil || isBusy)
+        .accessibilityLabel(isSaved == true ? "Remove from Library" : "Save to Library")
+        .help(isSaved == true ? "Remove from Library" : "Save to Library")
+        .task(id: uri) {
+            guard let library = model.library else { return }
+            isSaved = try? await library.isSaved(uri)
+        }
     }
 }
