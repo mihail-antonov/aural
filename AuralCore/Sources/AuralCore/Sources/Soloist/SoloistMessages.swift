@@ -252,12 +252,13 @@ enum SoloistWire {
     struct QueueChanged: Decodable { let upcoming: [QueueEntry]? }
 
     struct QueueEntry: Decodable, Sendable, Equatable {
+        /// Unique id of the entry in Soloist's queue.
+        let uid: String?
         /// `context`, `queue` (added with `add_to_queue`) or `autoplay`.
         let source: String
-        let item: QueueItem
+        /// Same shape as a playback item: URI, title, artists, covers, duration.
+        let item: Entity
     }
-
-    struct QueueItem: Decodable, Sendable, Equatable { let uri: String? }
     struct PlaybackChanged: Decodable { let status: String }
     struct PositionSync: Decodable { let position: Position }
     struct VolumeChanged: Decodable { let volume: Int }

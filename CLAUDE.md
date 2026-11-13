@@ -32,7 +32,7 @@ The first prototype used `librespot` (unofficial Rust implementation). Login wor
 ### Out of scope — do not implement
 - Lyrics, podcasts, audiobooks
 - Recommendations UI, home feed, editorial content
-- Spotify Connect device switching / output device picker
+- Spotify Connect device switching / output device picker (exception: the player's device menu can take playback over to Aural — "Playing in Aural")
 - Offline downloads of Spotify content, recording audio
 - Social features, friend activity
 - Any web view, embedded browser, Electron, Tauri, or Dioxus desktop
@@ -42,14 +42,16 @@ The first prototype used `librespot` (unofficial Rust implementation). Login wor
 
 Reference image: `docs/design-2.png` — **kept locally only, not committed** (third-party mockup with real album covers; listed in `.gitignore`). Follow its layout and style; read it before working on any UI. It shows a phone-sized screen; Aural adapts it to a small Mac window.
 
-A single **portrait window, 320 × 576 pt, fixed size**, rounded corners, no toolbar. The list button switches to the library (playlists, Liked, albums, search) in the same window; its back chevron or Esc returns to the player. (A bottom navigation bar was tried in Stage 4 and dropped by the owner.) The player page, top to bottom:
+A single **portrait window, 320 × 638 pt, fixed size** (586 pt of content plus the 52 pt hidden title bar; `Metrics.windowSize`. Was 628 pt until 2026-11-13, +10 pt for more room between the artist and the time), rounded corners, no visible toolbar strip. The list button switches to the library (playlists, Liked, albums, search) in the same window; its back chevron or Esc returns to the player. (A bottom navigation bar was tried in Stage 4 and dropped by the owner.) The player page, top to bottom:
 
-1. **Toolbar (no header row):** the design's header was dropped by the owner in Stage 4. Only the `…` menu remains, as a system toolbar item at the top right (settings: change Soloist API key, change Spotify Client ID; Aural and Soloist versions). It looks like the other icons (no toolbar button background). No chevron, no context name.
+1. **Toolbar and header row:** the `…` menu is a system toolbar item at the top right (settings: change Soloist API key, change Spotify Client ID; Aural and Soloist versions), drawn like the other icons (no toolbar button background). Under it, the design's header row is back (owner, 2026-11-13) with new content: left (the design's chevron) **where the music plays** — a speaker icon with a dropdown, accent color when Soloist is the active device, dimmed white when another device plays; the menu offers "Playing in Spotify" / "Playing in Aural" (choosing Aural: Soloist `activate` + `play`) — the only device switching in scope, no picker of other devices (Soloist does not name them); middle the playlist / album name (`contextName`); right (the design's `…`) the **heart** (adds the song to Liked Songs; filled accent heart when liked, clicking again removes it).
 2. **Track info:** title (bold) and artist (secondary), centered.
 3. **Time:** `01:23 | 02:35` (elapsed | total), small, with monospaced digits, above the cover.
 4. **Cover with progress ring:** the album art **cropped to a circle**, surrounded by a **circular progress ring** (accent-colored arc on a faint track) with a round **draggable knob**. Custom-drawn (no system control exists): must support VoiceOver (adjustable value) and keyboard seeking.
 5. **Controls row:** shuffle, previous, a **large round play/pause button** (system Liquid Glass `.glass` button), next, repeat. Shuffle/repeat use the accent color when active. The design's `⊖` ("hide song") is dropped — no API for it.
-6. **Bottom row:** search, **list** (opens the library in the same window), **volume** (opens a small glass popover with a slider), **heart** (adds the song to Liked Songs; filled accent heart when liked, clicking again removes it). No adding to playlists — Aural stays a lightweight player.
+6. **Bottom row:** search, **library** (`square.stack`, opens the library in the same window), **queue** (`list.bullet`, opens the queue page), **volume** (opens a small glass popover with a slider). No adding to playlists — Aural stays a lightweight player.
+
+Player layout rule: the header and track info are placed from the window top, the two control rows from the bottom (33 pt between them, 40 pt to the bottom edge), and the time + cover/ring fill the middle, shrinking if space gets tight (`Metrics.ringSize`). Adding or resizing a row must never change the controls' spacing; ask the owner before touching gaps that were not part of the request.
 
 Visual rules:
 - **Background:** a vertical gradient **tinted from the current cover's dominant color** (computed from the small, already downscaled cover image), dark enough for white text. It changes smoothly with the track. Opaque, as in the design: it is the content layer and keeps text readable on any wallpaper.
@@ -57,7 +59,7 @@ Visual rules:
 - **Liquid Glass (Apple's design language, macOS 26):** glass belongs to the **controls layer**, not to content. Use Apple's own button styles, not custom ones: `.glass` for play/pause and the Play / Shuffle / Save buttons (Play's icon in the accent color), no glass in setup: `.borderedProminent` in the accent color for the main button, `.borderless` and `Link` for minor actions, plain filled text fields (`.glassProminent` has no hover or press feedback on macOS); `.glassEffect()`, grouping nearby controls in a `GlassEffectContainer`. Header buttons, the `…` menu, control rows and popovers are glass; the cover and background are not. Check Apple's current documentation for exact APIs.
 - **Fonts:** system fonts only (SF Pro); monospaced digits for times.
 - Respect **Reduce Transparency** and **Increase Contrast** (verify how glass behaves with them; the opaque background already works without transparency).
-- Prefer **system SwiftUI controls and SF Symbols** over custom-drawn ones, so they adopt Liquid Glass automatically. The progress ring is the exception.
+- Prefer **system SwiftUI controls and SF Symbols** over custom-drawn ones, so they adopt Liquid Glass automatically. Exceptions agreed with the owner: the progress ring, and Spotify-style icon tooltips (`.tooltip(…)`, `Tooltip.swift`: dark label above the icon after ~0.45 s, drawn in a window-level layer). The toolbar's `…` menu, list rows and links keep the native `.help` tooltip.
 - Text and controls are designed for the dark tinted background in both system appearances.
 
 **Minimum macOS version: 26.** Apple Silicon only.
@@ -263,6 +265,7 @@ _Update this section at the end of each stage: what works, measured memory (Aura
   - Known issues: the transient browsing peak (list thumbnails via `AsyncImage`) — revisit with the capped image cache in Stage 7; Home page postponed; list thumbnails are 64 px images at 44–52 pt (slightly soft).
 - [ ] Stage 5 — Queue, shuffle, repeat, autoplay, like
   - Done ahead (owner's test round, 2026-11-13): heart moved to the bottom row (Liked Songs only; a Spotify-style `+` with add to playlists was tried and dropped by the owner to stay a lightweight player, so no `playlist-modify-*` scopes); setup fields are plain filled fields, not glass, Save to Library for albums and other people's playlists (hidden if Spotify answers 403, e.g. if saving a playlist needs a scope Aural does not request), song count and total time on album / playlist pages.
+  - Queue: its own page, opened from the player's bottom row (works without the Web API): Now Playing, then "Next in Queue" / "Up Next" / "Autoplay". While Aural plays one of its lists, Soloist's queue holds only the next track, so the page shows the rest of the list (up to 50) and rows jump there (`jump(toQueueEntry:)`); otherwise it shows Soloist's `queue_changed` entries (at most 10, display only — Soloist has no "play this queue entry"). `PlaybackSource.play(tracks:)` now takes `Track`s (with `thumbnailURL`) so the queue has titles and covers. Clear Queue (trash icon in the page header): Soloist cannot clear its queue, so Aural stops continuing its list and skips queued songs when they start (`SoloistListQueue.skipWhenStarted`); the playing playlist / album and autoplay stay, as in Spotify. **To confirm live:** that `queue_changed` entries carry decorations (title, artists, covers) — `make probe` prints a `queue` line with the first title.
   - Confirmed by the owner in the app (2026-11-13): `PUT` / `DELETE /me/library` and `GET /me/library/contains` with album and playlist URIs (Save to Library). `aural-probe webapi-check` also checks `contains` for an album and a followed playlist (read-only).
 - [ ] Stage 6 — Demo mode (local files)
 - [ ] Stage 7 — Polish and portfolio

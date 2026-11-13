@@ -18,7 +18,7 @@ struct SearchView: View {
 
       List {
         if !results.tracks.isEmpty {
-          SearchSectionHeader(title: "Songs")
+          ListSectionHeader(title: "Songs")
           ForEach(Array(results.tracks.enumerated()), id: \.element.id) { index, track in
             Button {
               model.play(tracks: results.tracks, startingAt: index)
@@ -30,21 +30,21 @@ struct SearchView: View {
           }
         }
         if !results.artists.isEmpty {
-          SearchSectionHeader(title: "Artists")
+          ListSectionHeader(title: "Artists")
           ForEach(results.artists) { artist in
             PageLink(value: artist) { ArtistRow(artist: artist) }
               .libraryRow()
           }
         }
         if !results.albums.isEmpty {
-          SearchSectionHeader(title: "Albums")
+          ListSectionHeader(title: "Albums")
           ForEach(results.albums) { album in
             PageLink(value: album) { AlbumRow(album: album) }
               .libraryRow()
           }
         }
         if !results.playlists.isEmpty {
-          SearchSectionHeader(title: "Playlists")
+          ListSectionHeader(title: "Playlists")
           ForEach(results.playlists) { playlist in
             PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
               .libraryRow()
@@ -75,23 +75,5 @@ struct SearchView: View {
         model.handleLibraryError(error)
       }
     }
-  }
-}
-
-/// iOS-style section title: large, bold, left-aligned, not uppercased.
-/// A plain list row rather than a `Section` header, so it has the same side
-/// insets as the rows, no separator line under it, and room around it.
-private struct SearchSectionHeader: View {
-  let title: String
-
-  var body: some View {
-    Text(title)
-      .font(.system(size: 17, weight: .bold))
-      .foregroundStyle(.white)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.top, 12)
-      .padding(.bottom, 6)
-      .libraryRow()
-      .accessibilityAddTraits(.isHeader)
   }
 }

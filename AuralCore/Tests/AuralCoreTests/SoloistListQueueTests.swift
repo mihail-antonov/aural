@@ -53,4 +53,28 @@ struct SoloistListQueueTests {
         #expect(!queue.isPlaying("spotify:track:a"))
         #expect(queue.trackStarted("spotify:track:b") == .skip)
     }
+
+    @Test func upcomingIsTheRestOfTheListAndFollowsPlayback() {
+        var queue = SoloistListQueue()
+        _ = queue.start(list, at: 1)
+        #expect(Array(queue.upcoming) == ["spotify:track:c", "spotify:track:d"])
+        _ = queue.trackStarted("spotify:track:b")
+        _ = queue.trackStarted("spotify:track:c")
+        #expect(Array(queue.upcoming) == ["spotify:track:d"])
+        _ = queue.start(["spotify:track:x"], at: 0)
+        #expect(queue.upcoming.isEmpty)
+        #expect(queue.isStale("spotify:track:d")) // was queued for the earlier list
+    }
+
+    @Test func clearedTracksAreSkippedWhenTheyStart() {
+        var queue = SoloistListQueue()
+        _ = queue.start(list, at: 0) // queues b
+        _ = queue.trackStarted("spotify:track:a")
+        queue.stop() // clear: b is stale
+        queue.skipWhenStarted(["spotify:track:q"]) // a song the user queued
+        #expect(queue.upcoming.isEmpty)
+        #expect(queue.trackStarted("spotify:track:b") == .skip)
+        #expect(queue.trackStarted("spotify:track:q") == .skip)
+        #expect(queue.trackStarted("spotify:track:z") == nil)
+    }
 }

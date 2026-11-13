@@ -51,6 +51,22 @@ extension PlaybackState {
     }
 }
 
+extension QueueEntry {
+    /// Soloist's upcoming entries as Aural queue entries. Placeholders and
+    /// non-track entries (e.g. episodes) are left out.
+    static func entries(soloist upcoming: [SoloistWire.QueueEntry]) -> [QueueEntry] {
+        upcoming.enumerated().compactMap { offset, entry in
+            guard let track = Track(soloist: entry.item), track.id.hasPrefix("spotify:track:") else { return nil }
+            let source: Source = switch entry.source {
+            case "queue": .queue
+            case "autoplay": .autoplay
+            default: .context
+            }
+            return QueueEntry(id: entry.uid ?? "\(offset)-\(track.id)", track: track, source: source)
+        }
+    }
+}
+
 extension PlaybackStatus {
     init(soloist status: String) {
         // Unknown future values fall back to `.idle` instead of failing.
@@ -99,8 +115,20 @@ extension Track {
             artists: (decorations?.creators ?? []).compactMap { $0.entity.decorations?.identity?.name },
             album: decorations?.parent?.entity.decorations?.identity?.name,
             artworkURL: Self.artworkURL(from: decorations?.visualIdentity?.cover ?? []),
+            thumbnailURL: Self.thumbnailURL(from: decorations?.visualIdentity?.cover ?? []),
             durationMs: decorations?.playback?.durationMs ?? 0
         )
+    }
+
+    /// Queue rows show the cover at 44 pt: `small` (~64 px) is enough and
+    /// decodes to a few KB instead of ~1.6 MB for `large`.
+    private static func thumbnailURL(from covers: [SoloistWire.Cover]) -> URL? {
+        for size in ["small", "default"] {
+            if let cover = covers.first(where: { $0.size == size }), let url = URL(string: cover.url) {
+                return url
+            }
+        }
+        return nil
     }
 
     /// The player shows the cover at 225 pt (450 px on Retina). Soloist's

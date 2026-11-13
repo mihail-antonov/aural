@@ -74,6 +74,10 @@ struct Probe {
                 }
             case .stateChanged(let state):
                 say("state    " + describe(state))
+            case .queueChanged(let queue):
+                // Shows whether Soloist's queue entries carry titles (needed by the Queue page).
+                let sources = queue.upNext.map { "\($0.source)" }.joined(separator: ",")
+                say("queue    \(queue.upNext.count) up next [\(sources)]; first: \(queue.upNext.first.map { "\($0.track.title) (\($0.track.durationMs) ms)" } ?? "-")")
             case .loginRejected:
                 say("login    rejected — the API key is invalid")
             case .sourceStopped(let message), .error(let message):

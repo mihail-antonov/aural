@@ -55,6 +55,16 @@ struct SoloistListQueue {
         return start(uris, at: index - 1)
     }
 
+    /// The list's tracks after the current one.
+    var upcoming: ArraySlice<String> {
+        uris.indices.contains(index + 1) ? uris[(index + 1)...] : []
+    }
+
+    /// Whether Aural will skip `uri` when it starts (queued for an earlier list).
+    func isStale(_ uri: String) -> Bool {
+        stale.contains(uri)
+    }
+
     /// Whether `uri` is the list's current track (so "previous" means the
     /// list's previous track, not autoplay's or another list's).
     func isPlaying(_ uri: String?) -> Bool {
@@ -62,7 +72,15 @@ struct SoloistListQueue {
         return uris[index] == uri
     }
 
-    /// Something else is played (a playlist or album as a whole).
+    /// Tracks waiting in Soloist's queue that should not play: they are
+    /// skipped when they start (Soloist's queue cannot be cleared).
+    mutating func skipWhenStarted(_ uris: [String]) {
+        for uri in uris where !stale.contains(uri) { stale.append(uri) }
+        if stale.count > Self.staleCapacity { stale.removeFirst(stale.count - Self.staleCapacity) }
+    }
+
+    /// Something else is played (a playlist or album as a whole), or the
+    /// rest of the list was cleared from the queue.
     mutating func stop() {
         markQueuedStale()
         uris = []

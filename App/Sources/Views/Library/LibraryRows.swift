@@ -80,6 +80,47 @@ struct ArtistRow: View {
     }
 }
 
+/// A song in the queue (or the one playing), from the playback source.
+struct QueueRow: View {
+    @Environment(AppModel.self) private var model
+    let track: Track
+    var isCurrent = false
+
+    var body: some View {
+        RowLayout(title: track.title, subtitle: track.artists.joined(separator: ", "), isCurrent: isCurrent) {
+            Thumbnail(url: track.thumbnailURL ?? track.artworkURL, size: RowMetrics.trackArtwork)
+                .overlay {
+                    if isCurrent {
+                        RoundedRectangle(cornerRadius: RowMetrics.cornerRadius).fill(.black.opacity(0.45))
+                        NowPlayingIndicator(isPlaying: model.playback.status == .playing)
+                    }
+                }
+        } trailing: {
+            Text(formatTime(track.durationMs))
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.45))
+        }
+    }
+}
+
+/// iOS-style section title in a list: large, bold, left-aligned. A plain
+/// list row rather than a `Section` header, so it has the same side insets
+/// as the rows, no separator line under it, and room around it.
+struct ListSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
+            .libraryRow()
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
 private enum RowMetrics {
     static let trackArtwork: CGFloat = 44
     static let collectionArtwork: CGFloat = 52

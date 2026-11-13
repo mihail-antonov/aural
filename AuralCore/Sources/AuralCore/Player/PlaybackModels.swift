@@ -12,14 +12,17 @@ public struct Track: Sendable, Equatable {
     public let album: String?
     /// Cover art sized for the mini player (~300 px), if known.
     public let artworkURL: URL?
+    /// Small cover for list rows (~64 px), if known.
+    public let thumbnailURL: URL?
     public let durationMs: Int
 
-    public init(id: String, title: String, artists: [String], album: String?, artworkURL: URL?, durationMs: Int) {
+    public init(id: String, title: String, artists: [String], album: String?, artworkURL: URL?, thumbnailURL: URL? = nil, durationMs: Int) {
         self.id = id
         self.title = title
         self.artists = artists
         self.album = album
         self.artworkURL = artworkURL
+        self.thumbnailURL = thumbnailURL
         self.durationMs = durationMs
     }
 }
@@ -83,10 +86,62 @@ public struct PlaybackState: Sendable, Equatable {
     public init() {}
 }
 
+/// One upcoming track in the queue.
+public struct QueueEntry: Sendable, Equatable, Identifiable {
+    public enum Source: Sendable, Equatable {
+        /// The rest of a list Aural is playing (Liked Songs, a playlist's or
+        /// album's tracks, search results).
+        case list
+        /// The playing playlist or album, as the source plays it.
+        case context
+        /// Added with "add to queue".
+        case queue
+        /// Similar songs Spotify picked to keep the music going.
+        case autoplay
+    }
+
+    /// Unique within one queue (the same song can be queued twice).
+    public let id: String
+    public let track: Track
+    public let source: Source
+
+    public init(id: String, track: Track, source: Source) {
+        self.id = id
+        self.track = track
+        self.source = source
+    }
+}
+
+/// What plays after the current track.
+public struct PlaybackQueue: Sendable, Equatable {
+    /// Next first. Bounded by the source (Soloist reports at most 10 of its
+    /// own entries; Aural's lists show at most `PlaybackQueue.limit`).
+    public var upNext: [QueueEntry] = []
+    /// Whether `PlaybackSource.jump(toQueueEntry:)` can start an entry.
+    public var canJump = false
+
+    public static let limit = 50
+
+    public init(upNext: [QueueEntry] = [], canJump: Bool = false) {
+        self.upNext = upNext
+        self.canJump = canJump
+    }
+
+    /// Whether `PlaybackSource.clearQueue()` would remove anything: queued
+    /// songs and the rest of a list. The playing playlist / album and
+    /// autoplay stay, as in Spotify.
+    public var canClear: Bool {
+        upNext.contains { $0.source == .list || $0.source == .queue }
+    }
+}
+
 public enum PlaybackEvent: Sendable, Equatable {
     /// The full state after any change. Sources merge partial updates and always
     /// send the complete (small) state, so the UI only has one case to handle.
     case stateChanged(PlaybackState)
+    /// The upcoming tracks changed. Separate from `stateChanged`, so the
+    /// player does not redraw when only the queue changed.
+    case queueChanged(PlaybackQueue)
     case loginChanged(isLoggedIn: Bool)
     /// The service refused a login attempt (for Soloist: the API key is invalid).
     case loginRejected

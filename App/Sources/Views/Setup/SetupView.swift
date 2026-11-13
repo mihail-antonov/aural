@@ -340,7 +340,7 @@ private struct LibraryStepView: View {
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(IconButtonStyle(size: 12, frame: 24))
-                    .help("Copy the redirect URI")
+                    .tooltip("Copy the redirect URI")
                 }
                 Text("Then paste the app's **Client ID**:")
             }

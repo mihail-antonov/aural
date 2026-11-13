@@ -21,6 +21,8 @@ final class AppModel {
 
     private(set) var phase: Phase = .starting
     private(set) var playback = PlaybackState()
+    /// What plays next (the Queue page).
+    private(set) var queue = PlaybackQueue()
     /// Cover of the current track. Kept from the previous track until the
     /// new one has loaded, so the player can cross-fade instead of flashing
     /// an empty placeholder (at most two covers, ~0.8 MB each, briefly).
@@ -58,11 +60,11 @@ final class AppModel {
     /// library's lists can reload.
     private(set) var savedCollectionsVersion = 0
 
-    /// Pages of the main window. The player's list button opens the library,
-    /// its search button the search; their back chevron (or Esc) returns to
+    /// Pages of the main window, opened from the player's bottom row
+    /// (search, library, queue); their back chevron (or Esc) returns to
     /// the player.
     enum Page {
-        case player, library, search
+        case player, library, queue, search
     }
 
     var page: Page = .player
@@ -163,6 +165,7 @@ final class AppModel {
             await soloist.stop()
         }
         isLoggedIn = false
+        queue = PlaybackQueue()
     }
 
     private func handle(_ event: PlaybackEvent) {
@@ -177,6 +180,8 @@ final class AppModel {
             }
             // Never show the previous track's cover in Control Center.
             nowPlaying?.update(state, artwork: artworkTrackID == state.track?.id ? artwork : nil)
+        case .queueChanged(let newQueue):
+            queue = newQueue
         case .loginChanged(let loggedIn):
             isLoggedIn = loggedIn
             if loggedIn {
@@ -378,9 +383,9 @@ final class AppModel {
     /// shows the player. `fromLikedSongs`: the tracks are known to be liked.
     func play(tracks: [TrackSummary], startingAt index: Int, fromLikedSongs: Bool = false) {
         guard tracks.indices.contains(index) else { return }
-        let uris = tracks.map(\.uri)
-        knownLikedURIs = fromLikedSongs ? Set(uris) : []
-        send { try await $0.play(trackURIs: uris, startingAt: index) }
+        knownLikedURIs = fromLikedSongs ? Set(tracks.map(\.uri)) : []
+        let playable = tracks.map(\.track)
+        send { try await $0.play(tracks: playable, startingAt: index) }
         page = .player
     }
 
@@ -401,6 +406,8 @@ final class AppModel {
     }
 
     func next() { send { try await $0.next() } }
+    /// Takes playback over from another Spotify device.
+    func playHere() { send { try await $0.playHere() } }
 
     /// 0–100.
     func setVolume(_ volume: Int) { send { try await $0.setVolume(volume) } }
@@ -420,6 +427,12 @@ final class AppModel {
     }
 
     func previous() { send { try await $0.previous() } }
+    func clearQueue() { send { try await $0.clearQueue() } }
+    /// Plays an upcoming track from the Queue page (stays on that page).
+    func jump(to entry: QueueEntry) {
+        let id = entry.id
+        send { try await $0.jump(toQueueEntry: id) }
+    }
     func seek(toMs positionMs: Int) { send { try await $0.seek(toMs: positionMs) } }
 
     /// Sends a command without blocking the UI. Results arrive as events.

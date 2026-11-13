@@ -9,8 +9,12 @@ public protocol PlaybackSource: Sendable {
 
     /// Plays a playlist or album (or a single track) from the start.
     func play(uri: String) async throws
-    /// Plays `trackURIs[index]`, then the tracks after it in order.
-    func play(trackURIs: [String], startingAt index: Int) async throws
+    /// Plays `tracks[index]`, then the tracks after it in order. The tracks'
+    /// details are shown in the queue.
+    func play(tracks: [Track], startingAt index: Int) async throws
+    /// Plays an entry of the current queue, skipping the ones before it.
+    /// Only when `PlaybackQueue.canJump` is true.
+    func jump(toQueueEntry id: QueueEntry.ID) async throws
     func resume() async throws
     func pause() async throws
     func next() async throws
@@ -20,6 +24,11 @@ public protocol PlaybackSource: Sendable {
     func setVolume(_ volume: Int) async throws
     func setShuffle(_ enabled: Bool) async throws
     func setRepeat(_ mode: RepeatMode) async throws
+    /// Removes queued songs and the rest of a list being played (see
+    /// `PlaybackQueue.canClear`). The current song keeps playing.
+    func clearQueue() async throws
+    /// Moves playback from another device to this one and plays.
+    func playHere() async throws
     /// Adds a track to the end of the queue.
     func addToQueue(uri: String) async throws
 }

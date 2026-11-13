@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// The window: a fixed 320 × 576 pt portrait window with the cover-tinted
+/// The window: a fixed 320 × 638 pt portrait window with the cover-tinted
 /// gradient as its background, showing the setup flow or the player pages.
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    /// Height of the hidden title bar. macOS adds it on top of the content's
-    /// size, so the content is made this much shorter (measured below; 32 pt
-    /// on macOS 27, used until the first measurement).
-    @State private var titleBarHeight = 32.0
+    /// Icon tooltips, drawn above the whole window (see `Tooltip.swift`).
+    @State private var tooltips = TooltipCenter()
 
     var body: some View {
         Group {
@@ -23,12 +21,15 @@ struct RootView: View {
         }
         .frame(width: Metrics.windowSize.width)
         .frame(maxHeight: .infinity)
-        .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { titleBarHeight = $0 }
+        .overlay { TooltipLayer(center: tooltips) }
+        .environment(\.tooltipCenter, tooltips)
         // The content runs under the (hidden) title bar, up to the window's top edge…
         .ignoresSafeArea()
-        // …while the window is sized from this frame plus the title bar, so
-        // the whole window is exactly `Metrics.windowSize` tall.
-        .frame(height: Metrics.windowSize.height - titleBarHeight)
+        // …while macOS sizes the window from this frame *plus* the title bar
+        // (52 pt with the toolbar). A fixed number, not a measurement: the
+        // measured inset came out as 0 here, which silently made the window
+        // 52 pt taller than intended.
+        .frame(height: Metrics.windowSize.height - Metrics.titleBarHeight)
         .animation(.default, value: model.phase)
         // The toolbar exists on every screen, so the title bar keeps the same
         // height and the window buttons never move. Only the player has the

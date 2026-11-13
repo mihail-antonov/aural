@@ -12,6 +12,25 @@ struct LibraryPage: View {
     }
 }
 
+/// The Queue page, opened with the player's queue button. The queue comes
+/// from Soloist, so it works without the Web API.
+struct QueuePage: View {
+    @Environment(AppModel.self) private var model
+    @State private var path: [BrowseDestination] = []
+
+    var body: some View {
+        BrowseStack(title: "Queue", path: $path, model: model) {
+            Button("Clear Queue", systemImage: "trash", action: model.clearQueue)
+                .labelStyle(.iconOnly)
+                .buttonStyle(IconButtonStyle(size: 14, frame: 28))
+                .disabled(!model.queue.canClear)
+                .tooltip("Clear queue")
+        } root: {
+            QueueView()
+        }
+    }
+}
+
 /// The Search page, opened with the player's search button.
 struct SearchPage: View {
     @Environment(AppModel.self) private var model
@@ -79,7 +98,7 @@ extension ArtistSummary: Browsable { var destination: BrowseDestination { .artis
 /// Aural draws its own stack: on macOS, `NavigationStack` switches pages
 /// without any animation, and while a page was leaving it showed the list
 /// underneath for a moment.
-struct BrowseStack<Accessory: View, Root: View>: View {
+struct BrowseStack<Accessory: View, Trailing: View, Root: View>: View {
     let title: String
     @Binding var path: [BrowseDestination]
     let model: AppModel
@@ -87,7 +106,24 @@ struct BrowseStack<Accessory: View, Root: View>: View {
     /// without animation, so the old ones never slide over the new content.
     var resetID: AnyHashable?
     @ViewBuilder let accessory: () -> Accessory
+    /// Buttons at the right end of the header (e.g. the queue's "Clear").
+    @ViewBuilder let trailing: () -> Trailing
     @ViewBuilder let root: () -> Root
+
+    init(
+        title: String, path: Binding<[BrowseDestination]>, model: AppModel, resetID: AnyHashable? = nil,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder trailing: @escaping () -> Trailing,
+        @ViewBuilder root: @escaping () -> Root
+    ) {
+        self.title = title
+        _path = path
+        self.model = model
+        self.resetID = resetID
+        self.accessory = accessory
+        self.trailing = trailing
+        self.root = root
+    }
     /// The row opened last: marked as selected when coming back to the list.
     @State private var openedID: AnyHashable?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -108,9 +144,10 @@ struct BrowseStack<Accessory: View, Root: View>: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(IconButtonStyle(size: 15, frame: 28))
                 .keyboardShortcut(.cancelAction) // Esc goes back
-                .help(path.isEmpty ? "Back to Player" : "Back")
+                .tooltip(path.isEmpty ? "Back to Player" : "Back")
                 Text(title).font(.headline)
                 Spacer()
+                trailing()
             }
             .frame(height: 28)
             .padding(.horizontal, 14)
@@ -160,9 +197,27 @@ struct BrowseStack<Accessory: View, Root: View>: View {
     }
 }
 
-extension BrowseStack where Accessory == EmptyView {
+extension BrowseStack where Trailing == EmptyView {
+    init(
+        title: String, path: Binding<[BrowseDestination]>, model: AppModel, resetID: AnyHashable? = nil,
+        @ViewBuilder accessory: @escaping () -> Accessory, @ViewBuilder root: @escaping () -> Root
+    ) {
+        self.init(title: title, path: path, model: model, resetID: resetID, accessory: accessory, trailing: { EmptyView() }, root: root)
+    }
+}
+
+extension BrowseStack where Accessory == EmptyView, Trailing == EmptyView {
     init(title: String, path: Binding<[BrowseDestination]>, model: AppModel, @ViewBuilder root: @escaping () -> Root) {
-        self.init(title: title, path: path, model: model, accessory: { EmptyView() }, root: root)
+        self.init(title: title, path: path, model: model, accessory: { EmptyView() }, trailing: { EmptyView() }, root: root)
+    }
+}
+
+extension BrowseStack where Accessory == EmptyView {
+    init(
+        title: String, path: Binding<[BrowseDestination]>, model: AppModel,
+        @ViewBuilder trailing: @escaping () -> Trailing, @ViewBuilder root: @escaping () -> Root
+    ) {
+        self.init(title: title, path: path, model: model, accessory: { EmptyView() }, trailing: trailing, root: root)
     }
 }
 

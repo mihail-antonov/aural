@@ -15,9 +15,18 @@ struct MainView: View {
             switch model.page {
             case .player:
                 PlayerView() // positions its rows from the window top itself
+                    // Pinned to the top like the other pages: the rows add up
+                    // to the window height, but if they come out a few points
+                    // shorter, a centered stack would start lower than the
+                    // library and search.
+                    .frame(maxHeight: .infinity, alignment: .top)
                     .transition(pageTransition(from: .leading))
             case .library:
                 LibraryPage()
+                    .padding(.top, Metrics.contentTop)
+                    .transition(pageTransition(from: .trailing))
+            case .queue:
+                QueuePage()
                     .padding(.top, Metrics.contentTop)
                     .transition(pageTransition(from: .trailing))
             case .search:

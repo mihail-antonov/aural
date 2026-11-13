@@ -44,7 +44,7 @@ struct SoloistMessagesTests {
     @Test func queueDecodesUpcomingEntries() throws {
         #expect(try SoloistEvent.decode(from: fixture("queue_changed")) == .queueChanged(upcoming: []))
         let event = try decode(#"{"type":"queue_changed","previous":[],"upcoming":[{"uid":"u","source":"queue","item":{"uri":"spotify:track:a","entity_type":"track"}}]}"#)
-        #expect(event == .queueChanged(upcoming: [.init(source: "queue", item: .init(uri: "spotify:track:a"))]))
+        #expect(event == .queueChanged(upcoming: [.init(uid: "u", source: "queue", item: .init(uri: "spotify:track:a", entityType: "track", decorations: nil))]))
     }
 
     @Test func unknownEventTypesAreIgnoredNotErrors() throws {

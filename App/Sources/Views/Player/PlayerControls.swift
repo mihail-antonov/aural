@@ -29,6 +29,7 @@ struct MoreMenu: View {
         .buttonStyle(IconButtonStyle(size: 15, frame: 28))
         .labelStyle(.iconOnly)
         .menuIndicator(.hidden)
+        .help("Settings")
     }
 
     /// `CFBundleShortVersionString`, set by `MARKETING_VERSION` in project.yml.
@@ -51,12 +52,12 @@ struct TransportControls: View {
                 .iconActive(playback.shuffle)
                 .disabled(!playback.availableActions.contains(.shuffle))
                 .accessibilityValue(playback.shuffle ? "On" : "Off")
-                .help(playback.shuffle ? "Shuffle: on" : "Shuffle: off")
+                .tooltip(playback.shuffle ? "Shuffle: on" : "Shuffle: off")
                 .buttonStyle(IconButtonStyle(size: 19))
             Spacer(minLength: 0)
             Button("Previous", systemImage: "backward.end.fill", action: model.previous)
                 .disabled(!hasTrack)
-                .help("Previous")
+                .tooltip("Previous")
             Spacer(minLength: 0)
 
             // The system's Liquid Glass button, round and large: the main action stands out.
@@ -71,20 +72,20 @@ struct TransportControls: View {
             .buttonBorderShape(.circle)
             .controlSize(.extraLarge)
             .accessibilityLabel(isPlaying ? "Pause" : "Play")
-            .help(isPlaying ? "Pause" : "Play")
+            .tooltip(isPlaying ? "Pause" : "Play")
             .disabled(!hasTrack)
 
             Spacer(minLength: 0)
             Button("Next", systemImage: "forward.end.fill", action: model.next)
                 .disabled(!hasTrack)
-                .help("Next")
+                .tooltip("Next")
             Spacer(minLength: 0)
             Button(repeatLabel(playback.repeatMode),
                    systemImage: playback.repeatMode == .track ? "repeat.1" : "repeat",
                    action: model.cycleRepeat)
                 .iconActive(playback.repeatMode != .off)
                 .disabled(!playback.availableActions.contains(.setRepeat))
-                .help(repeatLabel(playback.repeatMode))
+                .tooltip(repeatLabel(playback.repeatMode))
                 .buttonStyle(IconButtonStyle(size: 19))
         }
         .labelStyle(.iconOnly)
@@ -100,7 +101,7 @@ struct TransportControls: View {
     }
 }
 
-/// Search, library, volume, save (Liked Songs).
+/// Search, library, queue, volume.
 struct BottomControls: View {
     @Environment(AppModel.self) private var model
     @State private var showsVolume = false
@@ -109,25 +110,19 @@ struct BottomControls: View {
         let playback = model.playback
         HStack {
             Button("Search", systemImage: "magnifyingglass") { model.page = .search }
-                .help("Search")
+                .tooltip("Search")
             Spacer()
-            Button("Library", systemImage: "list.bullet") { model.page = .library }
-                .help("Library")
+            Button("Library", systemImage: "square.stack") { model.page = .library }
+                .tooltip("Library")
+            Spacer()
+            Button("Queue", systemImage: "list.bullet") { model.page = .queue }
+                .tooltip("Queue")
             Spacer()
             Button("Volume", systemImage: volumeSymbol(playback.volume)) { showsVolume.toggle() }
-                .help("Volume")
+                .tooltip("Volume")
                 .popover(isPresented: $showsVolume, arrowEdge: .top) {
                     VolumeSlider(initial: playback.volume, onChange: model.setVolume)
                 }
-            Spacer()
-            // Adds the song to Liked Songs (filled accent heart); clicking
-            // again removes it.
-            Button(model.showsLiked ? "Remove from Liked Songs" : "Add to Liked Songs",
-                   systemImage: model.showsLiked ? "heart.fill" : "heart",
-                   action: model.toggleLike)
-                .iconActive(model.showsLiked)
-                .disabled(model.isCurrentTrackLiked == nil)
-                .help(model.showsLiked ? "Remove from Liked Songs" : "Add to Liked Songs")
         }
         .labelStyle(.iconOnly)
         .buttonStyle(IconButtonStyle(size: 18))
@@ -140,6 +135,23 @@ struct BottomControls: View {
         case 34..<67: "speaker.wave.2.fill"
         default: "speaker.wave.3.fill"
         }
+    }
+}
+
+/// Adds the song to Liked Songs (filled accent heart); clicking again
+/// removes it. In the player's header row, where the design has its `…`.
+struct LikeButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button(model.showsLiked ? "Remove from Liked Songs" : "Add to Liked Songs",
+               systemImage: model.showsLiked ? "heart.fill" : "heart",
+               action: model.toggleLike)
+            .labelStyle(.iconOnly)
+            .buttonStyle(IconButtonStyle(size: 18, frame: 28))
+            .iconActive(model.showsLiked)
+            .disabled(model.isCurrentTrackLiked == nil)
+            .tooltip(model.showsLiked ? "Remove from Liked Songs" : "Add to Liked Songs")
     }
 }
 

@@ -191,12 +191,12 @@ struct CollectionHeader: View {
                     }
                     .buttonStyle(.glass)
                     .accessibilityLabel("Play")
-                    .help("Play")
+                    .tooltip("Play")
                     .disabled(!canPlay)
                     Button(action: shuffle) { icon("shuffle") }
                         .buttonStyle(.glass)
                         .accessibilityLabel("Shuffle")
-                        .help("Shuffle")
+                        .tooltip("Shuffle")
                         .disabled(!canPlay)
                 }
                 .buttonBorderShape(.circle)
@@ -271,7 +271,7 @@ private struct SaveToLibraryButton: View {
         .buttonStyle(.glass)
         .disabled(isSaved == nil || isBusy)
         .accessibilityLabel(isSaved == true ? "Remove from Library" : "Save to Library")
-        .help(isSaved == true ? "Remove from Library" : "Save to Library")
+        .tooltip(isSaved == true ? "Remove from Library" : "Save to Library")
         .task(id: uri) {
             guard let library = model.library else { return }
             isSaved = try? await library.isSaved(uri)

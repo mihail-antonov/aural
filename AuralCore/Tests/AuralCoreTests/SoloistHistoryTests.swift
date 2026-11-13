@@ -3,7 +3,7 @@ import Testing
 
 struct SoloistHistoryTests {
     private func queued(_ uris: String...) -> [SoloistWire.QueueEntry] {
-        uris.map { .init(source: "queue", item: .init(uri: $0)) }
+        uris.map { .init(uid: nil, source: "queue", item: .init(uri: $0, entityType: "track", decorations: nil)) }
     }
 
     @Test func goesBackToThePreviouslyPlayedTrackAndRequeuesTheRest() {

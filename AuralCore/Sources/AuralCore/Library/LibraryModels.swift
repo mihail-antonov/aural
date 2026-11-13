@@ -63,6 +63,13 @@ public struct TrackSummary: Sendable, Identifiable, Hashable {
     public let durationMs: Int
 }
 
+extension TrackSummary {
+    /// As a playback track, e.g. to show it in the queue.
+    public var track: Track {
+        Track(id: uri, title: title, artists: artists, album: album, artworkURL: coverURL, thumbnailURL: imageURL, durationMs: durationMs)
+    }
+}
+
 /// One page of a paginated list. `nextOffset` is nil on the last page.
 public struct Page<Item: Sendable>: Sendable {
     public let items: [Item]

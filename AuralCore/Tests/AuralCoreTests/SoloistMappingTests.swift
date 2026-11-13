@@ -93,4 +93,28 @@ struct ContextAndColorTests {
         let color = try #require(ArtworkLoader.averageColor(of: image))
         #expect(abs(color.red - 1) < 0.02 && abs(color.green - 0.5) < 0.02 && color.blue < 0.02)
     }
+
+    @Test func queueEntriesKeepTracksWithDetailsAndTheirSource() throws {
+        let event = try SoloistEvent.decode(from: Data(#"""
+            {"type":"queue_changed","upcoming":[
+              {"uid":"q1","source":"context","item":{"uri":"spotify:track:a","entity_type":"track","decorations":{
+                "identity":{"name":"Song A"},
+                "visual_identity":{"cover":[{"url":"https://img/small","size":"small"},{"url":"https://img/large","size":"large"}]},
+                "creators":[{"entity":{"uri":"spotify:artist:x","decorations":{"identity":{"name":"Artist"}}}}],
+                "playback":{"duration_ms":1000}}}},
+              {"source":"autoplay","item":{"uri":"spotify:track:b","entity_type":"track","decorations":{"identity":{"name":"Song B"}}}},
+              {"uid":"p","source":"context","item":{"uri":"spotify:meta:node_rules_placeholder","entity_type":"unknown"}}
+            ]}
+            """#.utf8))
+        guard case .queueChanged(let upcoming) = event else { Issue.record("not a queue event"); return }
+        let entries = QueueEntry.entries(soloist: upcoming)
+
+        #expect(entries.map(\.track.title) == ["Song A", "Song B"])
+        #expect(entries.map(\.source) == [.context, .autoplay])
+        #expect(entries[0].id == "q1")
+        #expect(entries[0].track.artists == ["Artist"])
+        #expect(entries[0].track.thumbnailURL == URL(string: "https://img/small"))
+        #expect(entries[0].track.artworkURL == URL(string: "https://img/large"))
+        #expect(entries[1].id == "1-spotify:track:b") // no uid: position and URI
+    }
 }
