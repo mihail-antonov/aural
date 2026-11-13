@@ -15,6 +15,7 @@ public actor SoloistSource: PlaybackSource {
     /// `entity_type` of the current context (`album`, `playlist`, `track`, …).
     private var contextType: String?
     private var history = SoloistHistory()
+    private var listQueue = SoloistListQueue()
 
     public init(configuration: SoloistConfiguration = SoloistConfiguration()) {
         (events, continuation) = AsyncStream.makeStream(
@@ -94,7 +95,14 @@ public actor SoloistSource: PlaybackSource {
         }
 
         let newState = state.applying(event)
-        if let uri = newState.track?.id, uri != state.track?.id { history.trackStarted(uri) }
+        if let uri = newState.track?.id, uri != state.track?.id {
+            history.trackStarted(uri)
+            switch listQueue.trackStarted(uri) {
+            case .addToQueue(let next): Task { await sendLogged(.addToQueue(uri: next)) }
+            case .skip: Task { await sendLogged(.skipNext) }
+            case nil: break
+            }
+        }
         if newState != state {
             state = newState
             continuation.yield(.stateChanged(newState))
@@ -107,41 +115,79 @@ public actor SoloistSource: PlaybackSource {
     }
 
     private func addToQueue(_ uris: [String]) async {
+        for uri in uris { await sendLogged(.addToQueue(uri: uri)) }
+    }
+
+    /// For commands Aural sends by itself (not on a user action): failures
+    /// are logged, not thrown.
+    private func sendLogged(_ command: SoloistCommand) async {
         do {
-            for uri in uris { try await send(.addToQueue(uri: uri)) }
+            try await send(command)
         } catch {
-            Log.soloist.error("Re-queueing after previous failed: \(error.localizedDescription, privacy: .public)")
+            Log.soloist.error("\(command.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     // MARK: - Commands (PlaybackSource)
 
-    public func play(uri: String) async throws { try await send(.play(uri: uri)) }
-    public func resume() async throws { try await send(.play(uri: nil)) }
-    public func pause() async throws { try await send(.pause) }
-    public func next() async throws { try await send(.skipNext) }
+    public func play(uri: String) async throws {
+        listQueue.stop()
+        try await send(.play(uri: uri))
+    }
+
+    /// Plays the chosen track and keeps the next track of the list queued
+    /// (see `SoloistListQueue`).
+    public func play(trackURIs: [String], startingAt index: Int) async throws {
+        guard let step = listQueue.start(trackURIs, at: index) else { return }
+        try await send(.play(uri: step.play))
+        if let next = step.queue { try await send(.addToQueue(uri: next)) }
+    }
+
+    public func resume() async throws { try await control(.play(uri: nil)) }
+    public func pause() async throws { try await control(.pause) }
+    public func next() async throws { try await control(.skipNext) }
     /// Like Spotify: restarts the track after 3 s, otherwise goes to the track
     /// that played before (see `SoloistHistory`).
     public func previous() async throws {
         let positionMs = state.position.current(durationMs: state.track?.durationMs)
+        let inContext = contextType == "album" || contextType == "playlist"
+        // Inside a list Aural is playing: the list's previous track.
+        if !inContext, positionMs < SoloistHistory.restartThresholdMs,
+           listQueue.isPlaying(state.track?.id), let step = listQueue.startPrevious() {
+            try await control(.play(uri: step.play))
+            if let next = step.queue { try await send(.addToQueue(uri: next)) }
+            return
+        }
         switch history.previous(currentURI: state.track?.id, positionMs: positionMs, contextType: contextType) {
-        case .skipInContext: try await send(.skipPrevious)
-        case .restart: try await send(.seek(positionMs: 0))
-        case .play(let uri): try await send(.play(uri: uri))
+        case .skipInContext: try await control(.skipPrevious)
+        case .restart: try await control(.seek(positionMs: 0))
+        case .play(let uri):
+            listQueue.stop()
+            try await control(.play(uri: uri))
         }
     }
-    public func seek(toMs positionMs: Int) async throws { try await send(.seek(positionMs: max(0, positionMs))) }
+    public func seek(toMs positionMs: Int) async throws { try await control(.seek(positionMs: max(0, positionMs))) }
     public func setVolume(_ volume: Int) async throws { try await send(.setVolume(min(100, max(0, volume)))) }
-    public func setShuffle(_ enabled: Bool) async throws { try await send(.setShuffle(enabled)) }
+    public func setShuffle(_ enabled: Bool) async throws { try await control(.setShuffle(enabled)) }
 
     public func setRepeat(_ mode: RepeatMode) async throws {
         for command in SoloistCommand.commands(for: mode) {
-            try await send(command)
+            try await control(command)
         }
     }
 
     /// Soloist accepts only track URIs here.
     public func addToQueue(uri: String) async throws { try await send(.addToQueue(uri: uri)) }
+
+    /// Sends a playback control. If another device took over Spotify playback
+    /// (e.g. the phone), Soloist ignores controls until it is active again, so
+    /// Aural activates it first — the user pressed a button in Aural.
+    private func control(_ command: SoloistCommand) async throws {
+        if !state.isActiveDevice, state.track != nil {
+            try await send(.activate)
+        }
+        try await send(command)
+    }
 
     private func send(_ command: SoloistCommand) async throws {
         guard let connection else { throw SoloistError.notConnected }

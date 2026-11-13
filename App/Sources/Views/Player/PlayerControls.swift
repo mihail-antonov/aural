@@ -208,28 +208,52 @@ private struct IconButtonBody: View {
     }
 }
 
-/// The large round play/pause button: Liquid Glass with a white tint that
-/// brightens and grows slightly on hover. Hover and press are both animated
-/// (the system `.glass` style switches its hover state instantly).
+/// Round Liquid Glass button: the player's play/pause and the Play / Shuffle
+/// buttons on playlist and album pages. The glass is tinted (white by
+/// default) and brightens and grows slightly on hover; hover and press are
+/// both animated (the system `.glass` styles switch their hover state
+/// instantly, and `.glassProminent` shows none).
 struct PlayButtonStyle: ButtonStyle {
+    var size: CGFloat = 56
+    /// Glass tint, e.g. the accent color for the main action.
+    var tint: Color = .white
+    /// Tint strength at rest; hovering doubles it.
+    var tintOpacity: Double = 0.14
+
     func makeBody(configuration: Configuration) -> some View {
-        PlayButtonBody(configuration: configuration)
+        PlayButtonBody(configuration: configuration, size: size, tint: tint, tintOpacity: tintOpacity)
     }
 }
 
 private struct PlayButtonBody: View {
     let configuration: ButtonStyleConfiguration
+    let size: CGFloat
+    let tint: Color
+    let tintOpacity: Double
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
+    /// Largest scale (on hover); the button's box is this big, so growing
+    /// never changes the layout around it.
+    private static let maxScale = 1.05
+
     var body: some View {
         let highlighted = isHovered && isEnabled
-        configuration.label
-            .frame(width: 56, height: 56)
-            .glassEffect(.regular.tint(.white.opacity(highlighted ? 0.28 : 0.14)), in: .circle)
-            .contentShape(.circle)
-            .scaleEffect(configuration.isPressed ? 0.93 : highlighted ? 1.05 : 1)
-            .opacity(isEnabled ? 1 : 0.4)
+        let scale = configuration.isPressed ? 0.93 : highlighted ? Self.maxScale : 1
+        // The glass circle grows and shrinks by its frame, not `scaleEffect`:
+        // inside a `List` row (playlist / album headers) a scale transform is
+        // applied from the row's top-left corner on macOS, which pushed the
+        // icon off-center. A frame change is plain layout and stays centered.
+        ZStack {
+            Circle()
+                .fill(.clear)
+                .frame(width: size * scale, height: size * scale)
+                .glassEffect(.regular.tint(tint.opacity(highlighted ? min(tintOpacity * 2, 1) : tintOpacity)), in: .circle)
+            configuration.label
+        }
+        .frame(width: size * Self.maxScale, height: size * Self.maxScale)
+        .contentShape(.circle)
+        .opacity(isEnabled ? 1 : 0.4)
             .onHover { isHovered = $0 }
             .animation(.smooth(duration: 0.25), value: highlighted)
             .animation(.smooth(duration: 0.15), value: configuration.isPressed)

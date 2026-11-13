@@ -21,7 +21,12 @@ final class AppModel {
 
     private(set) var phase: Phase = .starting
     private(set) var playback = PlaybackState()
+    /// Cover of the current track. Kept from the previous track until the
+    /// new one has loaded, so the player can cross-fade instead of flashing
+    /// an empty placeholder (at most two covers, ~0.8 MB each, briefly).
     private(set) var artwork: CGImage?
+    /// The track `artwork` belongs to; the player cross-fades when it changes.
+    private(set) var artworkTrackID: String?
     /// Average color of the current cover, for the tinted background. Kept
     /// from the previous track until the new cover has loaded.
     private(set) var coverColor: ArtworkColor?
@@ -56,10 +61,6 @@ final class AppModel {
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
     @ObservationIgnored private var nowPlaying: NowPlayingController?
     @ObservationIgnored private var likeTask: Task<Void, Never>?
-
-    /// How many following tracks are queued when a track is played from a list
-    /// (Soloist's `play` cannot start a playlist or album at a given track).
-    private static let queuedFollowingTracks = 20
 
     private let log = Logger(subsystem: "app.aural", category: "app")
 
@@ -150,7 +151,8 @@ final class AppModel {
                 loadArtwork(for: state.track)
                 refreshLiked(for: state.track)
             }
-            nowPlaying?.update(state, artwork: artwork)
+            // Never show the previous track's cover in Control Center.
+            nowPlaying?.update(state, artwork: artworkTrackID == state.track?.id ? artwork : nil)
         case .loginChanged(let loggedIn):
             isLoggedIn = loggedIn
             if loggedIn {
@@ -173,13 +175,17 @@ final class AppModel {
 
     private func loadArtwork(for track: Track?) {
         artworkTask?.cancel()
-        artwork = nil // release the previous image right away
-        guard let url = track?.artworkURL else { return }
+        guard let url = track?.artworkURL else {
+            artwork = nil
+            artworkTrackID = track?.id
+            return
+        }
         artworkTask = Task { [weak self] in
             guard let image = try? await ArtworkLoader.load(url, maxPixelSize: Self.artworkPixelSize),
                   !Task.isCancelled, let self
             else { return }
-            artwork = image
+            artwork = image // replaces (and releases) the previous cover
+            artworkTrackID = track?.id
             coverColor = ArtworkLoader.averageColor(of: image)
             nowPlaying?.update(playback, artwork: image)
         }
@@ -272,21 +278,24 @@ final class AppModel {
         phase = .setup
     }
 
-    /// Plays a playlist or album from the start and shows the player.
-    func play(uri: String) {
-        send { try await $0.play(uri: uri) }
+    /// Plays a playlist or album and shows the player. `shuffled` sets
+    /// shuffle before and after starting (Soloist may only accept it once the
+    /// new playlist or album is loaded).
+    func play(uri: String, shuffled: Bool) {
+        send { source in
+            try await source.setShuffle(shuffled)
+            try await source.play(uri: uri)
+            try await source.setShuffle(shuffled)
+        }
         page = .player
     }
 
-    /// Plays `tracks[index]` and queues the next tracks of the list.
+    /// Plays `tracks[index]` and then the rest of the list in order, and
+    /// shows the player.
     func play(tracks: [TrackSummary], startingAt index: Int) {
         guard tracks.indices.contains(index) else { return }
-        let first = tracks[index].uri
-        let following = tracks.dropFirst(index + 1).prefix(Self.queuedFollowingTracks).map(\.uri)
-        send { source in
-            try await source.play(uri: first)
-            for uri in following { try await source.addToQueue(uri: uri) }
-        }
+        let uris = tracks.map(\.uri)
+        send { try await $0.play(trackURIs: uris, startingAt: index) }
         page = .player
     }
 

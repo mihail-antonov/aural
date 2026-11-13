@@ -2,56 +2,159 @@ import AppKit
 import AuralCore
 import SwiftUI
 
-/// Guided first-run setup. One step is active at a time; finished steps show a checkmark.
+/// Guided first-run setup, one step per screen, in the player's window and
+/// style: the tinted background is the content, and the controls are Liquid
+/// Glass (a prominent glass button for the main action, glass buttons and
+/// fields for the rest). Progress through the four steps shows at the top.
 struct SetupView: View {
     let setup: SetupModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Set up Aural")
-                .font(.title2.bold())
+        VStack(spacing: 0) {
+            StepProgress(current: setup.step)
+                .padding(.top, Metrics.contentTop)
 
-            SetupStepRow(number: 1, title: "Install Soloist", step: .install, current: setup.step) {
-                InstallStepView(setup: setup)
+            Group {
+                switch setup.step {
+                case .install: InstallStepView(setup: setup)
+                case .key: KeyStepView(setup: setup)
+                case .pair: PairStepView(setup: setup)
+                case .library: LibraryStepView(setup: setup)
+                }
             }
-            SetupStepRow(number: 2, title: "Get your key", step: .key, current: setup.step) {
-                KeyStepView(setup: setup)
-            }
-            SetupStepRow(number: 3, title: "Pair your phone", step: .pair, current: setup.step) {
-                PairStepView(setup: setup)
-            }
-            SetupStepRow(number: 4, title: "Connect your library", step: .library, current: setup.step) {
-                LibraryStepView(setup: setup)
-            }
-            Spacer(minLength: 0)
+            .frame(maxHeight: .infinity)
+            .transition(.opacity)
         }
-        .padding(24)
-        .frame(width: 400, height: 620, alignment: .topLeading)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .foregroundStyle(.white)
+        .animation(.smooth(duration: 0.3), value: setup.step)
     }
 }
 
-/// Step header (number or checkmark) with its content shown only while active.
-private struct SetupStepRow<Content: View>: View {
-    let number: Int
-    let title: String
-    let step: SetupModel.Step
+/// Four short bars: done steps in the accent color, the current one white.
+private struct StepProgress: View {
     let current: SetupModel.Step
-    @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label {
-                Text(title).font(.headline)
-            } icon: {
-                Image(systemName: step < current ? "checkmark.circle.fill" : "\(number).circle")
-                    .foregroundStyle(step < current ? Color.green : (step == current ? Color.primary : Color.secondary))
-            }
-            .foregroundStyle(step == current ? .primary : .secondary)
-
-            if step == current {
-                content.padding(.leading, 28)
+        let steps = SetupModel.Step.allCases
+        HStack(spacing: 6) {
+            ForEach(steps, id: \.self) { step in
+                Capsule()
+                    .fill(step < current ? Theme.accent : .white.opacity(step == current ? 1 : 0.2))
+                    .frame(height: 4)
             }
         }
+        .frame(width: 120)
+        .accessibilityElement()
+        .accessibilityLabel("Step \((steps.firstIndex(of: current) ?? 0) + 1) of \(steps.count)")
+    }
+}
+
+/// The layout every step shares: icon, title and text at the top, the step's
+/// own content in the middle (scrolls if it is long), actions at the bottom.
+private struct StepLayout<Content: View, Actions: View>: View {
+    let systemImage: String
+    let title: String
+    let message: LocalizedStringKey
+    @ViewBuilder let content: Content
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 14) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 40, weight: .regular))
+                        .foregroundStyle(Theme.accent)
+                        .frame(height: 52)
+                    Text(title)
+                        .font(.title2.weight(.semibold))
+                    Text(message)
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    content
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 28)
+            }
+            .scrollIndicators(.never)
+
+            // Nearby glass controls are grouped, so they render and morph together.
+            GlassEffectContainer {
+                VStack(spacing: 10) { actions }
+            }
+            .padding(.top, 12)
+        }
+    }
+}
+
+/// Main action of a step: a full-width prominent glass button.
+private struct PrimaryButton: View {
+    let title: String
+    var isBusy = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if isBusy { ProgressView().controlSize(.small) }
+                Text(title).font(.body.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(Theme.accent.opacity(0.85))
+    }
+}
+
+/// A secondary action: full-width glass button.
+private struct SecondaryButton: View {
+    let title: String
+    var systemImage: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if let systemImage {
+                    Label(title, systemImage: systemImage)
+                } else {
+                    Text(title)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 26)
+        }
+        .buttonStyle(.glass)
+    }
+}
+
+/// A plain text action under the buttons ("Skip for now", "Cancel").
+private struct TextAction: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.callout)
+            .foregroundStyle(.white.opacity(0.7))
+    }
+}
+
+private struct ErrorText: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.callout)
+            .foregroundStyle(Color(red: 1, green: 0.55, blue: 0.5))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -62,25 +165,23 @@ private struct InstallStepView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Aural plays music through Spotify Soloist, Spotify's official player. It is downloaded directly from Spotify.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if setup.isInstalling {
-                ProgressView("Downloading and checking…")
-                    .controlSize(.small)
-            } else {
-                Button("Install Soloist") { Task { await setup.install() } }
-                    .buttonStyle(.borderedProminent)
-            }
-
+        StepLayout(
+            systemImage: "arrow.down.circle",
+            title: "Install Soloist",
+            message: "Aural plays music through Spotify Soloist, Spotify's official player. It is downloaded directly from Spotify and checked before it runs."
+        ) {
             if let error = setup.installError {
-                Text(error).font(.callout).foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Open the Soloist download page") { openURL(SoloistInstaller.downloadsPageURL) }
-                    .buttonStyle(.link)
+                ErrorText(message: error)
+            }
+        } actions: {
+            PrimaryButton(title: setup.isInstalling ? "Downloading and checking…" : "Install Soloist", isBusy: setup.isInstalling) {
+                Task { await setup.install() }
+            }
+            .disabled(setup.isInstalling)
+            if setup.installError != nil {
+                SecondaryButton(title: "Open the Download Page", systemImage: "safari") {
+                    openURL(SoloistInstaller.downloadsPageURL)
+                }
             }
         }
     }
@@ -94,38 +195,34 @@ private struct KeyStepView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Soloist needs your personal API key. Sign in with your Premium account, generate a key and copy it.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        StepLayout(
+            systemImage: "key",
+            title: "Add Your API Key",
+            message: "Soloist needs your personal API key. Sign in with your Premium account, generate a key and paste it here."
+        ) {
+            SecondaryButton(title: "Open Spotify for Developers", systemImage: "safari") {
+                openURL(SoloistAPIKey.dashboardURL)
+            }
+            .padding(.top, 4)
 
-            Button("Open Spotify for Developers") { openURL(SoloistAPIKey.dashboardURL) }
-
-            SecureField("Paste your API key", text: $setup.keyText)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(submit)
+            GlassField(placeholder: "Paste your API key", text: $setup.keyText, isSecure: true, onSubmit: submit)
                 .disabled(setup.isStartingSoloist)
 
-            HStack {
-                Button("Continue", action: submit)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(setup.keyText.isEmpty || setup.isStartingSoloist)
-                if setup.isChangingSettings {
-                    Button("Cancel") { setup.cancelSettingsChange() }
-                        .keyboardShortcut(.cancelAction)
-                        .disabled(setup.isStartingSoloist)
-                }
-                if setup.isStartingSoloist { ProgressView().controlSize(.small) }
-            }
-
             if let error = setup.keyError {
-                Text(error).font(.callout).foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                ErrorText(message: error)
             }
             if let version = setup.installedVersion {
                 Text("Soloist \(version.version) installed.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+        } actions: {
+            PrimaryButton(title: "Continue", isBusy: setup.isStartingSoloist, action: submit)
+                .disabled(setup.keyText.isEmpty || setup.isStartingSoloist)
+            if setup.isChangingSettings {
+                TextAction(title: "Cancel") { setup.cancelSettingsChange() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(setup.isStartingSoloist)
             }
         }
     }
@@ -142,33 +239,42 @@ private struct PairStepView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Open Spotify on your phone and choose **Aural** from the devices.")
-                .fixedSize(horizontal: false, vertical: true)
-
+        StepLayout(
+            systemImage: "iphone.radiowaves.left.and.right",
+            title: "Pair Your Phone",
+            message: "Open Spotify on your phone and choose **Aural** from the devices."
+        ) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Waiting for your phone…").foregroundStyle(.secondary)
+                Text("Waiting for your phone…").foregroundStyle(.white.opacity(0.7))
             }
+            .font(.callout)
+            .padding(.top, 4)
 
             if setup.localNetwork == .blocked {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Aural needs Local Network access so your phone can find it. Allow it when macOS asks, or turn on Aural in System Settings. If you change the setting there, quit and reopen Aural.")
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Open Local Network settings") { openURL(LocalNetworkAccess.settingsURL) }
-                }
-                .padding(10)
-                .background(.orange.opacity(0.15), in: .rect(cornerRadius: 8))
+                Text("Aural needs Local Network access so your phone can find it. Allow it when macOS asks, or turn on Aural in System Settings, then quit and reopen Aural.")
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(12)
+                    .background(.orange.opacity(0.18), in: .rect(cornerRadius: 12))
             }
 
             if setup.showPairingHint {
-                Text("Can't see Aural or it fails to connect? Make sure your phone is on the same Wi-Fi. If Spotify shows an error, your API key may be wrong.")
+                Text("Can't see Aural, or it fails to connect? Make sure your phone is on the same Wi-Fi. If Spotify shows an error, your API key may be wrong.")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Enter a different key") { setup.showKeyStep(error: nil) }
-                    .buttonStyle(.link)
+            }
+        } actions: {
+            if setup.localNetwork == .blocked {
+                SecondaryButton(title: "Open Local Network Settings", systemImage: "gear") {
+                    openURL(LocalNetworkAccess.settingsURL)
+                }
+            }
+            if setup.showPairingHint {
+                TextAction(title: "Enter a Different Key") { setup.showKeyStep(error: nil) }
             }
         }
     }
@@ -181,58 +287,56 @@ private struct LibraryStepView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("To show your playlists, Liked Songs and albums and to search, Aural uses the Spotify Web API through your own free developer app.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        StepLayout(
+            systemImage: "music.note.list",
+            title: "Connect Your Library",
+            message: "For playlists, Liked Songs, albums and search, Aural uses the Spotify Web API through your own free developer app."
+        ) {
+            SecondaryButton(title: "Open Spotify for Developers", systemImage: "safari") {
+                openURL(SpotifyAuth.dashboardURL)
+            }
+            .padding(.top, 4)
 
-            Button("Open Spotify for Developers") { openURL(SpotifyAuth.dashboardURL) }
-
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 6) {
                 Text("Create an app, tick **Web API**, and add this redirect URI:")
-                    .font(.callout)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack {
+                HStack(spacing: 6) {
                     Text(SpotifyAuth.redirectURI)
-                        .font(.callout.monospaced())
+                        .font(.caption.monospaced())
                         .textSelection(.enabled)
                     Button("Copy", systemImage: "doc.on.doc") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(SpotifyAuth.redirectURI, forType: .string)
                     }
                     .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
+                    .buttonStyle(IconButtonStyle(size: 12, frame: 24))
                 }
-                Text("Then copy the app's **Client ID**.").font(.callout)
+                Text("Then paste the app's **Client ID**:")
             }
+            .font(.callout)
+            .foregroundStyle(.white.opacity(0.85))
 
-            TextField("Paste the Client ID", text: $setup.clientIDText)
-                .textFieldStyle(.roundedBorder)
+            GlassField(placeholder: "Client ID", text: $setup.clientIDText, onSubmit: signIn)
                 .disabled(setup.isSigningIn)
 
-            HStack {
-                Button("Sign in with Spotify", action: signIn)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(setup.clientIDText.isEmpty || setup.isSigningIn)
-                if setup.isSigningIn {
-                    ProgressView().controlSize(.small)
-                    Text("Finish in your browser…").font(.callout).foregroundStyle(.secondary)
-                }
+            if setup.isSigningIn {
+                Text("Finish signing in in your browser…")
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.7))
             }
-
             if let error = setup.libraryError {
-                Text(error).font(.callout).foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                ErrorText(message: error)
             }
-
+        } actions: {
+            PrimaryButton(title: "Sign In with Spotify", isBusy: setup.isSigningIn, action: signIn)
+                .disabled(setup.clientIDText.isEmpty || setup.isSigningIn)
             if setup.isChangingSettings {
-                Button("Cancel") { setup.cancelSettingsChange() }
+                TextAction(title: "Cancel") { setup.cancelSettingsChange() }
                     .keyboardShortcut(.cancelAction)
                     .disabled(setup.isSigningIn)
             } else {
-                Button("Skip for now") { setup.skipLibrary() }
-                    .buttonStyle(.link)
+                TextAction(title: "Skip for Now") { setup.skipLibrary() }
             }
         }
     }

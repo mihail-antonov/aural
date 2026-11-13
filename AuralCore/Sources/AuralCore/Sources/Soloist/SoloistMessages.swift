@@ -21,6 +21,8 @@ enum SoloistCommand: Sendable, Equatable {
     case setRepeatContext(Bool)
     case setRepeatTrack(Bool)
     case addToQueue(uri: String)
+    /// Makes this device the active Spotify Connect device.
+    case activate
 
     /// Soloist has two independent repeat flags; Aural has one three-way mode.
     /// The flag that gets switched off is sent first, so both are never on at once.
@@ -53,6 +55,7 @@ extension SoloistCommand: Encodable {
         case .setRepeatContext: "set_repeat_context"
         case .setRepeatTrack: "set_repeat_track"
         case .addToQueue: "add_to_queue"
+        case .activate: "activate"
         }
     }
 
@@ -67,7 +70,7 @@ extension SoloistCommand: Encodable {
         case .setVolume(let volume): try container.encode(volume, forKey: .volume)
         case .setShuffle(let enabled), .setRepeatContext(let enabled), .setRepeatTrack(let enabled):
             try container.encode(enabled, forKey: .enabled)
-        case .getAuthState, .getState, .pause, .skipNext, .skipPrevious:
+        case .getAuthState, .getState, .pause, .skipNext, .skipPrevious, .activate:
             break
         }
     }

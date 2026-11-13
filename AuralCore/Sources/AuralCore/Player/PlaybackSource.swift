@@ -7,7 +7,10 @@ public protocol PlaybackSource: Sendable {
     /// Stream of state changes. There is a single consumer (the app's model).
     var events: AsyncStream<PlaybackEvent> { get }
 
+    /// Plays a playlist or album (or a single track) from the start.
     func play(uri: String) async throws
+    /// Plays `trackURIs[index]`, then the tracks after it in order.
+    func play(trackURIs: [String], startingAt index: Int) async throws
     func resume() async throws
     func pause() async throws
     func next() async throws

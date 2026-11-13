@@ -8,7 +8,10 @@ public struct PlaylistSummary: Sendable, Identifiable, Hashable {
     public let uri: String
     public let name: String
     public let ownerName: String?
+    /// Small image for list rows (~64 px).
     public let imageURL: URL?
+    /// Larger image for the playlist's page header (~300 px).
+    public let coverURL: URL?
     public let trackCount: Int?
     /// Spotify only returns the tracks of playlists the user owns or
     /// collaborates on. Others can be played, but their tracks are not listed.
@@ -20,15 +23,19 @@ public struct AlbumSummary: Sendable, Identifiable, Hashable {
     public let uri: String
     public let name: String
     public let artists: [String]
+    /// Small image for list rows (~64 px).
     public let imageURL: URL?
+    /// Larger image for the album's page header (~300 px).
+    public let coverURL: URL?
     public let trackCount: Int?
 
-    public init(id: String, uri: String, name: String, artists: [String], imageURL: URL?, trackCount: Int?) {
+    public init(id: String, uri: String, name: String, artists: [String], imageURL: URL?, coverURL: URL? = nil, trackCount: Int?) {
         self.id = id
         self.uri = uri
         self.name = name
         self.artists = artists
         self.imageURL = imageURL
+        self.coverURL = coverURL
         self.trackCount = trackCount
     }
 }
@@ -46,7 +53,10 @@ public struct TrackSummary: Sendable, Identifiable, Hashable {
     public let title: String
     public let artists: [String]
     public let album: String?
+    /// Small image for list rows (~64 px).
     public let imageURL: URL?
+    /// Larger album image (~300 px), for the Liked Songs header.
+    public let coverURL: URL?
     public let durationMs: Int
 }
 

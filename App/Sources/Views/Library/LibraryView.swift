@@ -50,12 +50,16 @@ private struct RequiresLibrary<Content: View>: View {
 
 /// A page header and a navigation stack for playlist / album / artist pages.
 /// Going back is the header's chevron (or Esc), which returns to the player
-/// from the top level.
-struct BrowseStack<Root: View>: View {
+/// from the top level. `accessory` (the library tabs) stays visible above
+/// every page of the stack.
+struct BrowseStack<Accessory: View, Root: View>: View {
     let title: String
     @Binding var path: NavigationPath
     let model: AppModel
+    @ViewBuilder let accessory: () -> Accessory
     @ViewBuilder let root: () -> Root
+    /// The row opened last: marked as selected when coming back to the list.
+    @State private var openedID: AnyHashable?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +77,8 @@ struct BrowseStack<Root: View>: View {
             .frame(height: 28)
             .padding(.horizontal, 14)
 
+            accessory()
+
             NavigationStack(path: $path) {
                 root()
                     .withoutToolbarItems()
@@ -81,7 +87,56 @@ struct BrowseStack<Root: View>: View {
                     .navigationDestination(for: ArtistSummary.self) { ArtistDetailView(artist: $0, model: model).withoutToolbarItems() }
             }
             .scrollContentBackground(.hidden) // lists sit directly on the tinted background
+            .environment(\.openPage, OpenPageAction { value, id in
+                openedID = id
+                // The path needs the concrete type: `navigationDestination(for:)`
+                // matches on it (an `AnyHashable` would match no destination).
+                switch value.base {
+                case let playlist as PlaylistSummary: path.append(playlist)
+                case let album as AlbumSummary: path.append(album)
+                case let artist as ArtistSummary: path.append(artist)
+                default: assertionFailure("No page for \(type(of: value.base))")
+                }
+            })
+            .environment(\.openedPageID, openedID)
         }
+    }
+}
+
+extension BrowseStack where Accessory == EmptyView {
+    init(title: String, path: Binding<NavigationPath>, model: AppModel, @ViewBuilder root: @escaping () -> Root) {
+        self.init(title: title, path: path, model: model, accessory: { EmptyView() }, root: root)
+    }
+}
+
+/// Opens a playlist / album / artist page in the surrounding `BrowseStack`.
+/// (A `NavigationLink` in a macOS `List` leaves a blue system selection on the
+/// row after going back; Aural draws its own selected state instead.)
+struct OpenPageAction {
+    let open: (_ value: AnyHashable, _ id: AnyHashable) -> Void
+
+    func callAsFunction<Value: Hashable & Identifiable>(_ value: Value) {
+        open(AnyHashable(value), AnyHashable(value.id))
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var openPage = OpenPageAction { _, _ in }
+    @Entry var openedPageID: AnyHashable?
+}
+
+/// A row that opens a page; shown as selected after coming back from it.
+struct PageLink<Value: Hashable & Identifiable, Label: View>: View {
+    let value: Value
+    @ViewBuilder let label: () -> Label
+    @Environment(\.openPage) private var openPage
+    @Environment(\.openedPageID) private var openedID
+
+    var body: some View {
+        Button { openPage(value) } label: {
+            label().environment(\.isRowSelected, openedID == AnyHashable(value.id))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -121,43 +176,57 @@ private struct LibraryContent: View {
 
     var body: some View {
         BrowseStack(title: "Library", path: $path, model: model) {
-            VStack(spacing: 0) {
-                GlassSegmentedControl(selection: $tab, items: Tab.allCases.map { ($0, $0.rawValue) })
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-
-                switch tab {
-                case .playlists:
-                    PagedListView(list: playlists) { _, playlist in
-                        NavigationLink(value: playlist) { PlaylistRow(playlist: playlist) }
-                    }
-                case .liked:
-                    PagedListView(list: liked) { index, track in
-                        Button { model.play(tracks: liked.items, startingAt: index) } label: { TrackRow(track: track) }
-                            .buttonStyle(.plain)
-                    }
-                    // Reload after a like/unlike in the player (skips the first load).
-                    .task(id: model.likedSongsVersion) {
-                        if liked.hasLoaded { await liked.reload() }
-                    }
-                case .albums:
-                    PagedListView(list: albums) { _, album in
-                        NavigationLink(value: album) { AlbumRow(album: album) }
-                    }
+            // The tabs stay visible on playlist and album pages too; picking
+            // a tab there goes back to that tab's list.
+            GlassSegmentedControl(selection: $tab, items: Tab.allCases.map { ($0, $0.rawValue) })
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+        } root: {
+            switch tab {
+            case .playlists:
+                PagedListView(list: playlists) { _, playlist in
+                    PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
+                }
+            case .liked:
+                PagedListView(list: liked) {
+                    CollectionHeader(
+                        imageURL: liked.items.first?.coverURL,
+                        title: "Liked Songs",
+                        subtitle: "Playlist",
+                        canPlay: !liked.items.isEmpty,
+                        play: { model.play(tracks: liked.items, startingAt: 0) },
+                        shuffle: { model.play(tracks: liked.items.shuffled(), startingAt: 0) }
+                    )
+                } row: { index, track in
+                    Button { model.play(tracks: liked.items, startingAt: index) } label: { TrackRow(track: track) }
+                        .buttonStyle(.plain)
+                }
+                // Reload after a like/unlike in the player (skips the first load).
+                .task(id: model.likedSongsVersion) {
+                    if liked.hasLoaded { await liked.reload() }
+                }
+            case .albums:
+                PagedListView(list: albums) { _, album in
+                    PageLink(value: album) { AlbumRow(album: album) }
                 }
             }
         }
+        .onChange(of: tab) { path = NavigationPath() }
     }
 }
 
 /// A lazily loaded list: SwiftUI's `List` only creates rows that are visible,
 /// and reaching the last row loads the next page.
-struct PagedListView<Item: Sendable & Identifiable, Row: View>: View {
+/// `header` scrolls with the list (e.g. a playlist's cover and buttons).
+struct PagedListView<Item: Sendable & Identifiable, Header: View, Row: View>: View {
     let list: PagedList<Item>
+    @ViewBuilder let header: () -> Header
     @ViewBuilder let row: (Int, Item) -> Row
 
     var body: some View {
         List {
+            header()
+                .libraryRow()
             ForEach(Array(list.items.enumerated()), id: \.element.id) { index, item in
                 row(index, item)
                     .libraryRow()
@@ -182,5 +251,11 @@ struct PagedListView<Item: Sendable & Identifiable, Row: View>: View {
         }
         .libraryList()
         .task { await list.loadIfNeeded() }
+    }
+}
+
+extension PagedListView where Header == EmptyView {
+    init(list: PagedList<Item>, @ViewBuilder row: @escaping (Int, Item) -> Row) {
+        self.init(list: list, header: { EmptyView() }, row: row)
     }
 }

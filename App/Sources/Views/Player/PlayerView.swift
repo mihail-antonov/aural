@@ -126,12 +126,22 @@ private struct CoverWithRing: View {
         .frame(width: Metrics.ringFrame, height: Metrics.ringFrame)
     }
 
-    @ViewBuilder private var cover: some View {
-        if let image = model.artwork {
-            Image(decorative: image, scale: 2).resizable().scaledToFill()
-        } else {
+    /// When the track changes, the old cover fades out right away; the new
+    /// one fades in once it has loaded. The image is swapped while invisible,
+    /// so it never snaps. A faint circle stays behind as the placeholder.
+    private var cover: some View {
+        let isCurrent = model.artworkTrackID != nil && model.artworkTrackID == model.playback.track?.id
+        return ZStack {
             Circle().fill(.white.opacity(0.08))
-                .overlay { Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.white.opacity(0.4)) }
+            if let image = model.artwork {
+                Image(decorative: image, scale: 2).resizable().scaledToFill()
+                    .opacity(isCurrent ? 1 : 0)
+                    .scaleEffect(isCurrent ? 1 : 0.96)
+            } else if isCurrent || model.playback.track == nil {
+                // The track has no cover at all.
+                Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.white.opacity(0.4))
+            }
         }
+        .animation(.easeInOut(duration: 0.35), value: isCurrent)
     }
 }

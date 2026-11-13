@@ -112,6 +112,11 @@ extension WebAPIWire {
         let image = sorted.first { ($0.width ?? .max) >= minimum } ?? sorted.last
         return image.flatMap { URL(string: $0.url) }
     }
+
+    /// Image for a page header (shown at ~140 pt, 280 px on Retina).
+    static func coverURL(_ images: [Image]?) -> URL? {
+        imageURL(images, targetWidth: 280)
+    }
 }
 
 extension TrackSummary {
@@ -127,6 +132,7 @@ extension TrackSummary {
             artists: (track.artists ?? []).map(\.name),
             album: track.album?.name ?? albumFallback?.name,
             imageURL: WebAPIWire.imageURL(track.album?.images) ?? albumFallback?.imageURL,
+            coverURL: WebAPIWire.coverURL(track.album?.images) ?? albumFallback?.coverURL,
             durationMs: track.durationMs ?? 0
         )
     }
@@ -140,6 +146,7 @@ extension AlbumSummary {
             name: album.name,
             artists: (album.artists ?? []).map(\.name),
             imageURL: WebAPIWire.imageURL(album.images),
+            coverURL: WebAPIWire.coverURL(album.images),
             trackCount: album.totalTracks
         )
     }
@@ -161,6 +168,7 @@ extension PlaylistSummary {
             name: playlist.name,
             ownerName: playlist.owner?.displayName,
             imageURL: WebAPIWire.imageURL(playlist.images),
+            coverURL: WebAPIWire.coverURL(playlist.images),
             trackCount: playlist.items?.total ?? playlist.tracks?.total,
             canListTracks: isOwn || playlist.collaborative == true
         )

@@ -92,6 +92,7 @@ private struct RowLayout<Leading: View, Trailing: View>: View {
     @ViewBuilder let leading: () -> Leading
     @ViewBuilder let trailing: () -> Trailing
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.isRowSelected) private var isSelected
     @State private var isHovered = false
 
     var body: some View {
@@ -114,8 +115,9 @@ private struct RowLayout<Leading: View, Trailing: View>: View {
         }
         .contentShape(.rect) // the whole row is clickable, not only the text
         .background {
+            // Selected (the page opened last): a darker fill; hover: a lighter one.
             RoundedRectangle(cornerRadius: 8)
-                .fill(.white.opacity(isHovered ? 0.07 : 0))
+                .fill(isSelected ? .black.opacity(isHovered ? 0.14 : 0.2) : .white.opacity(isHovered ? 0.07 : 0))
                 .padding(.horizontal, -8)
                 .padding(.vertical, -4)
         }
@@ -141,6 +143,11 @@ private struct NowPlayingIndicator: View {
             .symbolEffect(.variableColor.iterative, isActive: isPlaying)
             .accessibilityLabel(isPlaying ? "Playing" : "Paused")
     }
+}
+
+extension EnvironmentValues {
+    /// Set by `PageLink` on the row whose page was opened last.
+    @Entry var isRowSelected = false
 }
 
 extension View {
