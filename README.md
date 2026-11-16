@@ -1,10 +1,16 @@
-# Aural
+<p align="center">
+  <img src="App/Resources/Assets.xcassets/AppIcon.appiconset/icon_512.png" width="160" height="160" alt="Aural app icon">
+</p>
 
-A lightweight native Spotify mini player for macOS, built with Swift, SwiftUI and Liquid Glass.
+<h1 align="center">Aural</h1>
+
+<p align="center">
+  A lightweight native Spotify mini player for macOS, built with Swift, SwiftUI and Liquid Glass.
+</p>
 
 > **Disclaimer:** Aural is an unofficial interface for [Spotify Soloist](https://developer.spotify.com/documentation/soloist). It requires a Spotify Premium account. Aural is not affiliated with, endorsed or sponsored by Spotify.
 
-> **Status:** early development. Not ready for everyday use yet. See [Roadmap](#roadmap).
+> **Status:** works day to day; final polish in progress. There is no ready-made download: you build your own copy in a few minutes (see [Install](#install)).
 
 ---
 
@@ -16,14 +22,14 @@ Aural is a small native window that does the core things — play, pause, skip, 
 
 ### Memory
 
-| | Memory while playing |
+| | Memory |
 |---|---|
 | Official Spotify desktop app | 1 GB+ (to be measured under the same conditions) |
-| Spotify Soloist (playback engine) | ~34–37 MB *(measured)* |
-| Aural (interface) | to be measured |
-| **Aural + Soloist** | **target: under 150 MB** |
+| Aural (interface) | ~37 MB |
+| Spotify Soloist (playback engine) | ~24 MB |
+| **Aural + Soloist** | **~60 MB** |
 
-Measured with `footprint` on an Apple Silicon MacBook Pro, macOS 26. Numbers will be updated as development progresses.
+Measured with `footprint` on an Apple Silicon MacBook Pro, macOS 26, Release build of Aural.
 
 ## How it works
 
@@ -52,61 +58,131 @@ Spotify Soloist, released in August 2026, is the official answer for headless an
 
 ## Features
 
-Planned for the first release:
-
-- Play / pause / next / previous / seek / volume
+- Play / pause / next / previous / seek (drag the ring around the cover) / volume
 - Shuffle and repeat
-- Autoplay of similar tracks when an album or playlist ends
-- Your playlists, Liked Songs and saved albums
-- Search
-- Like / unlike the current track
+- Autoplay of similar songs when an album, playlist or song ends
+- Your playlists, Liked Songs and saved albums; save albums and playlists to your library
+- Search for songs, albums, artists and playlists
+- Queue page: what plays next, jump to a song, clear the queue
+- Like / unlike the current song
+- Take playback over from your phone or another device ("Playing in Aural")
+- Remembers the last song and position when you quit
 - macOS Now Playing (Control Center, lock screen) and media keys, including AirPods
-- Demo mode with local audio files — try the app without a Spotify account
+- Keyboard: Space plays / pauses, ⌘→ next, ⌘← previous, Esc goes back to the player
+- Installs and updates Soloist by itself, no terminal needed
 
 Intentionally **not** included: lyrics, podcasts, home feed, social features, offline downloads.
 
-## Requirements
+## Install
 
-- macOS 26 or later, Apple Silicon
-- Spotify Premium
-- [Spotify Soloist](https://developer.spotify.com/documentation/soloist/reference/downloads-and-updates) and your own Soloist API key from the [Spotify for Developers dashboard](https://developer.spotify.com/dashboard/soloist)
-- The official Spotify app on your phone or another device, once, to pair Soloist
+Aural is not on the App Store and there is no ready-made download: you build your own copy from this repository with Xcode. It takes a few minutes, needs no paid Apple account, and you end up with a normal app in your Applications folder.
 
-Aural will guide you through installing Soloist, entering your API key and pairing on first launch *(planned)*.
+### 1. What you need
 
-## Building from source
+- A Mac with Apple Silicon and **macOS 26** or later
+- **Spotify Premium**
+- The official Spotify app on your phone or another computer (used once, to connect Aural)
+- **Xcode 26** from the Mac App Store (free), opened once so it can finish installing its components
+- [Homebrew](https://brew.sh), to install XcodeGen
 
-Requires Xcode (for the macOS SDK and command-line tools) and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+### 2. Build and install
+
+1. Install XcodeGen, which generates the Xcode project:
+
+   ```bash
+   brew install xcodegen
+   ```
+
+2. Get the code:
+
+   ```bash
+   git clone https://github.com/mihail-antonov/aural.git
+   cd aural
+   ```
+
+3. Set up free code signing. macOS only runs apps that are signed, and a stable signature lets Aural keep your keys in the Keychain without asking again after every update.
+   1. In Xcode, open **Settings → Accounts**, click **+** and sign in with your Apple ID. This creates a free "Personal Team".
+   2. Select the team, click **Manage Certificates…**, then **+ → Apple Development**.
+   3. Find your team ID (a 10-character code) in the new certificate:
+
+      ```bash
+      security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+      ```
+
+      It is the value after `OU=`.
+   4. Create your local settings file and put the team ID in it:
+
+      ```bash
+      cp App/Config/Local.xcconfig.example App/Config/Local.xcconfig
+      ```
+
+      Then edit `App/Config/Local.xcconfig` and replace `YOURTEAMID` with your team ID. This file stays on your Mac (it is in `.gitignore`).
+
+4. Build Aural and copy it to your Applications folder:
+
+   ```bash
+   make install
+   ```
+
+If `make install` says that xcodebuild requires Xcode, point the command-line tools at Xcode once: `sudo xcode-select -s /Applications/Xcode.app`.
+
+Aural is now in `/Applications`. Open it from Launchpad, Spotlight or Finder, and keep it in the Dock if you like (right-click its Dock icon → **Options → Keep in Dock**).
+
+### 3. First launch
+
+Aural guides you through four short steps in its window:
+
+1. **Install Soloist.** One click: Aural downloads Soloist directly from Spotify, checks that it is signed by Spotify, and installs it in its own folder. Aural never ships Soloist itself.
+2. **Add your Soloist API key.** Open the [Soloist page in the Spotify for Developers dashboard](https://developer.spotify.com/dashboard/soloist), sign in with your Premium account, generate a key and paste it into Aural. The key is stored in your Keychain.
+3. **Pair with Spotify.** Open the Spotify app on your phone (or another computer) on the same Wi-Fi, open the device picker and choose **Aural**. macOS asks whether Aural may find devices on your local network: click **Allow**, otherwise Spotify cannot see Aural. You only pair once.
+4. **Connect your library** *(optional, for playlists, Liked Songs, albums, search and the like button)*. Spotify asks every user of the Web API to register their own app:
+   1. In the [Spotify for Developers dashboard](https://developer.spotify.com/dashboard), click **Create app**.
+   2. Give it any name and description, select **Web API**, and add this redirect URI exactly: `http://127.0.0.1:43821/callback`.
+   3. Save, copy the app's **Client ID** into Aural, and sign in when the browser opens.
+
+   You can skip this step and connect later from the `…` menu. Playback works without it.
+
+After that, Aural opens straight to the player.
+
+### Updating
+
+- **Aural:** in the `aural` folder, run `git pull && make install`. Your keys, pairing and library login are kept.
+- **Soloist:** Spotify's Soloist builds stop working 90 days after release. A week before that, Aural shows an **Update Soloist** button; if a build has already expired, Aural asks you to update when it starts. Either way it is one click.
+
+## Building for development
 
 ```bash
-make test      # run AuralCore's tests
-make run       # build and launch the app (available from Stage 2)
+make test      # run AuralCore's unit tests
+make run       # build a debug version and launch it
+make install   # build the release version and copy it to /Applications
 ```
 
-During early development, `make probe URI=spotify:track:<id>` runs a command-line prototype that starts Soloist and plays a track.
+The logic lives in the `AuralCore` Swift package and is tested with `swift test`; the app target is generated from `App/project.yml` with XcodeGen. Xcode is only needed for SwiftUI previews and debugging.
 
 ## Limitations
 
-- **Soloist builds expire every 90 days.** Aural will warn you in advance and update Soloist with one click *(planned)*.
+- **Soloist builds expire every 90 days.** Aural offers the update a week in advance; updating takes one click.
 - **Soloist is visible on your local network** as a Spotify Connect device, and Soloist has no option to turn this off. Others on the same Wi-Fi can see it and could start playback on it.
 - **The Soloist API key is passed as a command-line argument**, so it is visible in the process list to other processes of your user account. Soloist offers no other way to pass it.
-- **Library and search use the Spotify Web API in Development Mode**, which Spotify limits to five users per registered app. To use Aural, you may need to register your own app in the Spotify for Developers dashboard.
-- Playing an **artist** directly isn't supported by Soloist; artists open their albums instead.
+- **Library and search use the Spotify Web API in Development Mode**, which needs your own registered app (step 4 above) and allows at most five users per app.
+- **Playlists you follow but do not own** can be played, but Spotify does not let Aural list their songs.
+- **Artists** cannot be played as a whole (Soloist does not support it); opening an artist shows their songs instead.
+- **Soloist reports at most 10 upcoming songs** for a playlist or album, so the queue page shows only those.
 
 ## Roadmap
 
 - [x] Soloist research and measurements
-- [ ] Soloist control prototype
-- [ ] Minimal app with Now Playing and media keys
-- [ ] Library and search
-- [ ] Full interface with Liquid Glass
-- [ ] Queue, shuffle, repeat, autoplay, likes
-- [ ] Demo mode
-- [ ] Polish: guided setup, one-click Soloist updates, image cache
+- [x] Soloist control prototype
+- [x] Minimal app with guided setup, Now Playing and media keys
+- [x] Library and search
+- [x] Full interface with Liquid Glass
+- [x] Queue, shuffle, repeat, autoplay, likes
+- [x] Image cache, restore last song, in-app Soloist updates
+- [ ] Screenshots and a short video
 
 ## Built with
 
-Swift 6, SwiftUI, AVFoundation, MediaPlayer, Spotify Soloist and the Spotify Web API — no third-party dependencies. Developed with [Claude Code](https://claude.com/claude-code); see [`CLAUDE.md`](CLAUDE.md) for the project brief the agent works from.
+Swift 6, SwiftUI, MediaPlayer, Spotify Soloist and the Spotify Web API, with no third-party dependencies. Developed with [Claude Code](https://claude.com/claude-code); see [`CLAUDE.md`](CLAUDE.md) for the project brief the agent works from.
 
 ## License
 

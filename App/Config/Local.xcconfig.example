@@ -1,4 +1,5 @@
 // Copy to Local.xcconfig (not committed) and fill in your team ID.
-// Find it in Xcode → Settings → Accounts, or in a signed build's
-// `codesign -dv` output ("TeamIdentifier").
+// Your team ID is the OU= value of your Apple Development certificate
+// (create it in Xcode → Settings → Accounts → Manage Certificates):
+//   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
 DEVELOPMENT_TEAM = YOURTEAMID
