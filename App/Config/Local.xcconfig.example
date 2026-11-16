@@ -1,5 +1,11 @@
-// Copy to Local.xcconfig (not committed) and fill in your team ID.
-// Your team ID is the OU= value of your Apple Development certificate
-// (create it in Xcode → Settings → Accounts → Manage Certificates):
-//   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+// Optional: copy to Local.xcconfig (not committed) to sign Aural with your
+// free Apple "Personal Team" instead of ad hoc. The signature then stays the
+// same across builds, so the Keychain never asks again after an update.
+//
+// 1. Xcode → Settings → Accounts: add your Apple ID, select the team,
+//    Manage Certificates… → + → Apple Development.
+// 2. Your team ID is the OU= value of that certificate:
+//      security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
 DEVELOPMENT_TEAM = YOURTEAMID

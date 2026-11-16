@@ -41,4 +41,15 @@ struct PlaybackSnapshotTests {
         try await source.seek(toMs: 10_000)
         #expect(await source.snapshot()?.positionMs == 10_000)
     }
+
+    @Test func failedResumeKeepsTheRestoredTrack() async {
+        let source = SoloistSource() // never connected: every command fails
+        let snapshot = PlaybackSnapshot(track: track("a"), positionMs: 42_000, contextName: nil, upcoming: [track("b")])
+        await source.restore(snapshot)
+
+        await #expect(throws: SoloistError.notConnected) { try await source.resume() }
+
+        // Still restorable: the next play press tries again.
+        #expect(await source.snapshot() == snapshot)
+    }
 }

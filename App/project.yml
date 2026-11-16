@@ -28,10 +28,8 @@ targets:
         ARCHS: arm64
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
-        CODE_SIGN_STYLE: Automatic
-        # Apple Development signing (Personal Team) gives a stable signature, so
-        # the Keychain does not ask again after every build.
-        CODE_SIGN_IDENTITY: Apple Development
+        # Signing (ad hoc by default, or your Personal Team) is set in
+        # Config/Base.xcconfig and Config/Local.xcconfig.
         ENABLE_HARDENED_RUNTIME: YES
         # No App Sandbox: Aural downloads and runs Spotify's Soloist executable.
         ENABLE_APP_SANDBOX: NO

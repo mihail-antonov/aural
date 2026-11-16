@@ -5,7 +5,7 @@
 **Aural** — a lightweight native Spotify mini player for macOS, written entirely in **Swift / SwiftUI** with Apple's Liquid Glass design. Playback is done by **Spotify Soloist**, Spotify's official headless player; Aural is its native interface and controls it through Soloist's local WebSocket API.
 (Never rename the app to anything starting with "Spot" or resembling "Spotify".)
 
-**The single most important goal: low memory usage.** The official Spotify desktop app is a Chromium (CEF) web app that uses 1 GB+ of RAM. **Aural + Soloist together** must stay well below that — target **under ~150 MB combined**, with Aural itself under ~60 MB. Soloist's own baseline (measured in Stage 0): ~19 MB logged in and idle, ~34–37 MB while playing. Every design decision should be judged against this.
+**The single most important goal: low memory usage.** The official Spotify desktop app is a Chromium (CEF) web app that uses close to 1 GB of RAM (~900 MB measured, 2026-11-16). **Aural + Soloist together** must stay well below that — target **under ~150 MB combined**, with Aural itself under ~60 MB. Soloist's own baseline (measured in Stage 0): ~19 MB logged in and idle, ~34–37 MB while playing. Every design decision should be judged against this.
 
 **Second goal: feel native to macOS 26.** Liquid Glass, system controls, Now Playing, media keys — it should look and behave like an app Apple could have shipped.
 
@@ -75,7 +75,7 @@ Visual rules:
 | Spotify Web API (library, search) | `URLSession` + `Codable` — only for what still works, see "Web API availability" |
 | Now Playing + media keys | `MPNowPlayingInfoCenter`, `MPRemoteCommandCenter` |
 | Secrets (Soloist API key, tokens) | Keychain (Security framework) |
-| Project | **XcodeGen** (`project.yml`) for the app; logic in a local **Swift package** |
+| Project | **XcodeGen** (`project.yml`, pinned 2.46.0, fetched by the Makefile) for the app; logic in a local **Swift package** |
 
 Prefer Apple frameworks over third-party packages. Add a dependency only with a clear reason, pin its exact version, and note it here.
 
@@ -188,15 +188,16 @@ Work **one stage at a time**. Each stage must end with something that runs. Do n
 4. **Full UI per design.** The player as in `docs/design-2.png` (see "Design"), with Liquid Glass: cover-tinted background, circular cover with progress ring, glass controls, volume popover, `…` menu; the list button's playlists / queue panel (prototype 2 options first).
 5. **Queue, shuffle, repeat, autoplay, like button.**
 6. ~~Demo mode~~ — dropped (see "Out of scope").
-7. **Polish and portfolio.** Image cache with a cap, restore last state on launch, **Soloist management in the app** (update flow, expiry notice and exit-code-10 screen with "Update" button, a settings screen to replace the API key — see "Soloist management in the app"; first-run setup and install are done in Stage 2), app icon, README, screenshots and a short video (see "Portfolio" for the cover-art question).
+7. **Polish and portfolio.** Done: image cache with a cap, restore last state on launch, Soloist update flow (expiry notice, exit-code-10 screen, "Update" button), replacing the API key / Client ID from the `…` menu, app icon, `make install`, README with install guide, MIT license. Remaining: screenshots and a short video (see "Portfolio" for the cover-art question), Activity Monitor screenshot and a fresh-launch measurement of the Spotify app, version 1.0.0 and a release tag.
 
 Optional later stages (only if the owner asks): menu bar mode; global keyboard shortcuts.
 
 ## Building
 
-- The owner works in Zed. Everything must build and run from the command line: `swift test` for AuralCore; `xcodegen` + `xcodebuild` for the app. Provide a single `make run` that builds and launches the app, and `make test`.
+- The owner works in Zed. Everything must build and run from the command line: `swift test` for AuralCore; `xcodegen` + `xcodebuild` for the app. `make run` builds and launches a Debug build, `make test` runs AuralCore's tests, `make install` builds the Release app and copies it to `/Applications` (how the owner and README readers run Aural day to day).
 - Xcode is only needed for SwiftUI Previews and debugging.
-- Sign with the owner's free Apple "Personal Team" so the signature is stable and Keychain doesn't prompt after every build.
+- Signing: ad hoc ("Sign to Run Locally") by default (`App/Config/Base.xcconfig`), so anyone can build without an Apple account (macOS asks once per rebuild before Aural reads its Keychain items). The owner signs with the free Personal Team through the uncommitted `App/Config/Local.xcconfig` (style, identity, team ID), so the signature is stable and the Keychain doesn't prompt.
+- Build tool: XcodeGen 2.46.0, downloaded by the Makefile into `.build/tools/` from its official GitHub release and checked against a pinned SHA-256 (no Homebrew needed). Update version and checksum together in the Makefile.
 
 ## Conventions
 
@@ -209,8 +210,8 @@ Optional later stages (only if the owner asks): menu bar mode; global keyboard s
 
 ## Portfolio
 
-- **README headline: measured memory.** "Official Spotify client: ~X GB. Aural + Soloist: Y MB." Measure honestly under the same conditions; include Activity Monitor screenshots.
-- README sections: what it is, why (memory), architecture diagram (SwiftUI ↔ AuralCore ↔ WebSocket ↔ Soloist ↔ Spotify), the librespot → Soloist story, setup (download Soloist from the official page, generate your own API key), how to build, limitations.
+- **README headline: measured memory.** Official Spotify app ~900 MB vs. Aural + Soloist ~60 MB (Release build, after launch). The owner wants only this ~60 MB figure in the README: no browsing or peak numbers (those stay in "Progress"). Measure honestly under the same conditions; include Activity Monitor screenshots.
+- README sections: icon header, what it is, why (memory), architecture diagram (SwiftUI ↔ AuralCore ↔ WebSocket ↔ Soloist ↔ Spotify), the librespot → Soloist story, features, install (build your own copy with `make install` and free Personal Team signing — there is no ready-made download without a paid Developer ID; first-launch steps incl. the Web API app and redirect URI), updating, limitations, roadmap, license (MIT).
 - **Disclaimer:** unofficial interface for Spotify Soloist; requires Spotify Premium; not affiliated with, endorsed or sponsored by Spotify.
 - No Spotify logo or brand colors in the app or README.
 - Screenshots and videos must not show copyrighted album art prominently. Open question (decide in Stage 7): e.g. play royalty-free / Creative Commons music that is on Spotify, or blur the covers.
@@ -275,6 +276,7 @@ _Update this section at the end of each stage: what works, measured memory (Aura
   - Image cache: `ArtworkCache` (AuralCore/Cache) keeps downloaded cover files in `~/Library/Caches/app.aural.Aural/artwork`, 200 MB cap, LRU by file date (a read refreshes it), trimmed to 80 % when over. `ArtworkLoader` reads from it and decodes at display size; list and page covers use `ArtworkImage` instead of `AsyncImage` (released when rows leave the screen). The shared `URLCache` is no longer used for images.
   - Last state: `PlaybackSnapshot` (track, position, playlist / album name, up to 50 following tracks) saved to `~/Library/Application Support/Aural/last-playback.json` on quit, on every track change and before Soloist restarts. On launch the track shows paused; play (or "Playing in Aural") plays it and what followed as an Aural list and seeks to the saved position once Soloist reports it playing (a seek sent on `track_changed` was ignored in testing: it started at 0:00), with one retry; next starts the following track. Shuffle / repeat are not restored.
   - Soloist updates: from 7 days before expiry an "Update Soloist" toolbar button (and `…` menu item) stops Soloist, installs Spotify's latest build, restarts it with the stored key and restores the track; on failure it links to the download page. An expired build (at launch, or exit code 10 while running) shows step 1 as "Update Soloist"; after the update Soloist starts with the stored key and pairing (no key re-entry). Not yet tested with a real expired build.
-  - 59 unit tests.
+  - README rewritten for people building their own copy (install guide, first launch, updating), icon header, MIT `LICENSE`.
+  - 60 unit tests.
   - Memory, Release build (`footprint`, 2026-11-16): after launch, paused: Aural 37 MB, Soloist 20 MB + helper 3.8 MB, **combined ~61 MB**. After browsing every library page: Aural 57 MB (peak 98 MB), combined ~81 MB. A ~1.5 s burst to 84 MB right after launch is graphics memory for the first frames (44 MB, freed by macOS). `heap`: live objects ~22 MB, mostly SwiftUI / system; no lists, JSON or images retained. The rest after browsing is malloc fragmentation (16.5 MB free inside partly used pages, 45 %), which `malloc_zone_pressure_relief` cannot return (tried, removed). Debug build after browsing for comparison: Aural 61 MB, peak 112 MB.
   - Browsing peak analysed (`malloc_history -highWaterMark`, full stack logging, Debug): of 62 MB allocated at the peak, Aural's own code is ~3 MB (cover decoding in `ArtworkLoader`); the rest is AppKit / SwiftUI: scroll and display-link thread stacks 33 MB (mostly reserved, not resident), rendering / Metal 24 MB, SwiftUI graph 15 MB, a LaunchServices database copy 13 MB. Nothing in Aural's code to shrink; accepted.

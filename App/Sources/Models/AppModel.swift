@@ -161,7 +161,10 @@ final class AppModel {
         problem = nil
         // Soloist forgets its playback when it stops: show the last session's
         // track (paused) until something else plays.
-        if let snapshot = PlaybackSnapshot.load() { await source.restore(snapshot) }
+        // Read off the main actor: the UI never waits on disk.
+        if let snapshot = await Task.detached(operation: { PlaybackSnapshot.load() }).value {
+            await source.restore(snapshot)
+        }
         // Single consumer of the event stream for the whole app.
         eventsTask = Task { [weak self] in
             for await event in source.events {

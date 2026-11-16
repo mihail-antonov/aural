@@ -20,17 +20,17 @@ public enum ArtworkLoader {
 
     /// - Parameter maxPixelSize: longest side of the result, in pixels.
     public static func load(_ url: URL, maxPixelSize: Int, cache: ArtworkCache = .shared) async throws -> CGImage {
-        let data: Data
         if let cached = await cache.data(for: url) {
-            data = cached
-        } else {
-            let (downloaded, response) = try await session.data(from: url)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw LoadError.httpStatus(http.statusCode) }
-            data = downloaded
-            await cache.store(data, for: url)
+            try Task.checkCancellation()
+            return try decode(cached, maxPixelSize: maxPixelSize)
         }
+        let (data, response) = try await session.data(from: url)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw LoadError.httpStatus(http.statusCode) }
         try Task.checkCancellation()
-        return try decode(data, maxPixelSize: maxPixelSize)
+        let image = try decode(data, maxPixelSize: maxPixelSize)
+        // Cached only once it decoded: a broken download is never kept.
+        await cache.store(data, for: url)
+        return image
     }
 
     /// Decodes straight to the smaller size. The `Data` (a few dozen KB of

@@ -117,6 +117,9 @@ public actor SoloistSource: PlaybackSource {
         }
         let trackStarted = newState.track.map(\.id).flatMap { $0 != state.track?.id ? $0 : nil }
         if let uri = trackStarted {
+            // Another track started before the restored one played: its
+            // saved position no longer applies.
+            if let seek = pendingSeek, seek.uri != uri { pendingSeek = nil }
             history.trackStarted(uri)
             switch listQueue.trackStarted(uri) {
             case .addToQueue(let next): Task { await sendLogged(.addToQueue(uri: next)) }
@@ -378,6 +381,14 @@ public actor SoloistSource: PlaybackSource {
         if !skippingCurrent, snapshot.positionMs > 0 {
             pendingSeek = (snapshot.track.id, snapshot.positionMs)
         }
-        try await play(tracks: tracks, startingAt: index)
+        do {
+            try await play(tracks: tracks, startingAt: index)
+        } catch {
+            // Nothing started: keep showing the restored track, so play can be tried again.
+            pendingSeek = nil
+            restored = snapshot
+            state.track = snapshot.track
+            throw error
+        }
     }
 }

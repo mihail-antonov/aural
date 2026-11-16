@@ -10,13 +10,13 @@
 
 > **Disclaimer:** Aural is an unofficial interface for [Spotify Soloist](https://developer.spotify.com/documentation/soloist). It requires a Spotify Premium account. Aural is not affiliated with, endorsed or sponsored by Spotify.
 
-> **Status:** works day to day; final polish in progress. There is no ready-made download: you build your own copy in a few minutes (see [Install](#install)).
+> **Getting Aural:** install Xcode, then one command builds and installs it (see [Install](#install)).
 
 ---
 
 ## Why
 
-The official Spotify desktop app is built on the Chromium Embedded Framework — essentially a full web browser — and regularly uses 1 GB of RAM or more. For something that mostly plays music in the background, that is a lot.
+The official Spotify desktop app is built on the Chromium Embedded Framework — essentially a full web browser — and uses close to 1 GB of RAM. For something that mostly plays music in the background, that is a lot.
 
 Aural is a small native window that does the core things — play, pause, skip, seek, shuffle, repeat, your playlists, search — and nothing else. The heavy lifting is done by Spotify Soloist, Spotify's official headless player, which Aural controls through its local WebSocket API.
 
@@ -24,7 +24,7 @@ Aural is a small native window that does the core things — play, pause, skip, 
 
 | | Memory |
 |---|---|
-| Official Spotify desktop app | 1 GB+ (to be measured under the same conditions) |
+| Official Spotify desktop app (1.3.9) | ~900 MB |
 | Aural (interface) | ~37 MB |
 | Spotify Soloist (playback engine) | ~24 MB |
 | **Aural + Soloist** | **~60 MB** |
@@ -75,79 +75,67 @@ Intentionally **not** included: lyrics, podcasts, home feed, social features, of
 
 ## Install
 
-Aural is not on the App Store and there is no ready-made download: you build your own copy from this repository with Xcode. It takes a few minutes, needs no paid Apple account, and you end up with a normal app in your Applications folder.
+There is no ready-made download: you build your own copy, which takes one command. You need a Mac with Apple Silicon and **macOS 26**, **Spotify Premium**, and the Spotify app on your phone.
 
-### 1. What you need
-
-- A Mac with Apple Silicon and **macOS 26** or later
-- **Spotify Premium**
-- The official Spotify app on your phone or another computer (used once, to connect Aural)
-- **Xcode 26** from the Mac App Store (free), opened once so it can finish installing its components
-- [Homebrew](https://brew.sh), to install XcodeGen
-
-### 2. Build and install
-
-1. Install XcodeGen, which generates the Xcode project:
-
-   ```bash
-   brew install xcodegen
-   ```
-
-2. Get the code:
+1. **Install [Xcode](https://apps.apple.com/app/xcode/id497799835)** from the App Store (free) and open it once, so it can finish setting up.
+2. **Build and install Aural.** In Terminal:
 
    ```bash
    git clone https://github.com/mihail-antonov/aural.git
    cd aural
-   ```
-
-3. Set up free code signing. macOS only runs apps that are signed, and a stable signature lets Aural keep your keys in the Keychain without asking again after every update.
-   1. In Xcode, open **Settings → Accounts**, click **+** and sign in with your Apple ID. This creates a free "Personal Team".
-   2. Select the team, click **Manage Certificates…**, then **+ → Apple Development**.
-   3. Find your team ID (a 10-character code) in the new certificate:
-
-      ```bash
-      security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
-      ```
-
-      It is the value after `OU=`.
-   4. Create your local settings file and put the team ID in it:
-
-      ```bash
-      cp App/Config/Local.xcconfig.example App/Config/Local.xcconfig
-      ```
-
-      Then edit `App/Config/Local.xcconfig` and replace `YOURTEAMID` with your team ID. This file stays on your Mac (it is in `.gitignore`).
-
-4. Build Aural and copy it to your Applications folder:
-
-   ```bash
    make install
    ```
 
-If `make install` says that xcodebuild requires Xcode, point the command-line tools at Xcode once: `sudo xcode-select -s /Applications/Xcode.app`.
+3. **Open Aural** from Launchpad or Spotlight and follow its setup.
 
-Aural is now in `/Applications`. Open it from Launchpad, Spotlight or Finder, and keep it in the Dock if you like (right-click its Dock icon → **Options → Keep in Dock**).
+That's it. To keep Aural in the Dock, right-click its icon while it runs → **Options → Keep in Dock**.
 
-### 3. First launch
+### What the setup asks for
 
-Aural guides you through four short steps in its window:
+Aural walks you through four steps in its window. Each one explains itself; open the notes below only if you get stuck.
 
-1. **Install Soloist.** One click: Aural downloads Soloist directly from Spotify, checks that it is signed by Spotify, and installs it in its own folder. Aural never ships Soloist itself.
-2. **Add your Soloist API key.** Open the [Soloist page in the Spotify for Developers dashboard](https://developer.spotify.com/dashboard/soloist), sign in with your Premium account, generate a key and paste it into Aural. The key is stored in your Keychain.
-3. **Pair with Spotify.** Open the Spotify app on your phone (or another computer) on the same Wi-Fi, open the device picker and choose **Aural**. macOS asks whether Aural may find devices on your local network: click **Allow**, otherwise Spotify cannot see Aural. You only pair once.
-4. **Connect your library** *(optional, for playlists, Liked Songs, albums, search and the like button)*. Spotify asks every user of the Web API to register their own app:
-   1. In the [Spotify for Developers dashboard](https://developer.spotify.com/dashboard), click **Create app**.
-   2. Give it any name and description, select **Web API**, and add this redirect URI exactly: `http://127.0.0.1:43821/callback`.
-   3. Save, copy the app's **Client ID** into Aural, and sign in when the browser opens.
+<details>
+<summary><b>1. Install Soloist</b>: one click</summary>
 
-   You can skip this step and connect later from the `…` menu. Playback works without it.
+Aural downloads Soloist, Spotify's official player, directly from Spotify, checks that it is signed by Spotify, and installs it in its own folder. Aural never ships Soloist itself.
+</details>
 
-After that, Aural opens straight to the player.
+<details>
+<summary><b>2. Your Soloist API key</b>: from the Spotify for Developers dashboard</summary>
+
+Open the [Soloist page in the dashboard](https://developer.spotify.com/dashboard/soloist), sign in with your Premium account, click to generate a key and paste it into Aural. It is stored in your Keychain.
+</details>
+
+<details>
+<summary><b>3. Pair with Spotify</b>: choose "Aural" on your phone, once</summary>
+
+Open the Spotify app on your phone (or another computer) on the same Wi-Fi, open the device picker and choose **Aural**. When macOS asks whether Aural may find devices on your local network, click **Allow**; otherwise Spotify cannot see it.
+</details>
+
+<details>
+<summary><b>4. Connect your library</b>: optional, for playlists, Liked Songs, albums and search</summary>
+
+Spotify asks every Web API user to register their own app:
+
+1. In the [Spotify for Developers dashboard](https://developer.spotify.com/dashboard), click **Create app**.
+2. Enter any name and description, select **Web API**, and add this redirect URI exactly: `http://127.0.0.1:43821/callback`.
+3. Save, copy the app's **Client ID** into Aural, and sign in when the browser opens.
+
+You can skip this and connect later from the `…` menu; playback works without it.
+</details>
 
 ### Updating
 
-- **Aural:** in the `aural` folder, run `git pull && make install`. Your keys, pairing and library login are kept.
-- **Soloist:** Spotify's Soloist builds stop working 90 days after release. A week before that, Aural shows an **Update Soloist** button; if a build has already expired, Aural asks you to update when it starts. Either way it is one click.
+- **Aural:** in the `aural` folder, run `git pull && make install`. After an update macOS may ask once whether Aural can use its saved keys; click **Always Allow**.
+- **Soloist:** Spotify's builds stop working 90 days after release. A week before, Aural shows an **Update Soloist** button; if a build has expired, Aural asks you to update when it starts. One click either way.
+
+<details>
+<summary>Troubleshooting</summary>
+
+- **"Aural needs Xcode to build"**: install Xcode, open it once, then run `sudo xcode-select -s /Applications/Xcode.app` and try again.
+- **Spotify doesn't show Aural in its device list**: check System Settings → Privacy & Security → Local Network and turn Aural on; phone and Mac must be on the same network.
+- **No Keychain question after every update** *(optional)*: sign Aural with a free Apple "Personal Team" instead of the default local signature; see `App/Config/Local.xcconfig.example`.
+</details>
 
 ## Building for development
 
@@ -157,7 +145,7 @@ make run       # build a debug version and launch it
 make install   # build the release version and copy it to /Applications
 ```
 
-The logic lives in the `AuralCore` Swift package and is tested with `swift test`; the app target is generated from `App/project.yml` with XcodeGen. Xcode is only needed for SwiftUI previews and debugging.
+The logic lives in the `AuralCore` Swift package and is tested with `swift test`. The app's Xcode project is generated from `App/project.yml` by [XcodeGen](https://github.com/yonaskolb/XcodeGen), which the first build downloads (pinned version, checksum-verified). Xcode itself is only needed for SwiftUI previews and debugging.
 
 ## Limitations
 
@@ -186,4 +174,4 @@ Swift 6, SwiftUI, MediaPlayer, Spotify Soloist and the Spotify Web API, with no 
 
 ## License
 
-*To be decided.*
+Aural's source code is available under the [MIT License](LICENSE). Spotify Soloist is Spotify's software, is not part of this repository, and is covered by Spotify's own terms.

@@ -1,4 +1,15 @@
 // Shared build settings for the Aural app.
-// Personal values (your Apple development team ID) go in Local.xcconfig,
-// which is not committed. Copy Local.xcconfig.example to get started.
+//
+// Signing. By default Aural is signed "to run locally" (ad hoc): no Apple ID
+// or certificate needed, so anyone can build it with `make install`. The
+// signature changes with every build, so after an update macOS asks once
+// whether Aural may read its saved keys ("Always Allow").
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+
+// Optional personal settings, not committed: sign with your free Apple
+// "Personal Team" instead, for a stable signature and no Keychain prompts
+// after rebuilds. Copy Local.xcconfig.example to Local.xcconfig.
+// Included last, so its values win.
 #include? "Local.xcconfig"
