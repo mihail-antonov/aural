@@ -21,6 +21,14 @@ struct SoloistVersionTests {
         #expect(version.isExpired(at: build.addingTimeInterval(90 * 86_400)))
     }
 
+    @Test func offersTheUpdateInTheLastWeek() {
+        let build = Date(timeIntervalSince1970: 1_800_000_000)
+        let version = SoloistVersion(version: "1.3.10.65", buildDate: build)
+        #expect(!version.expiresSoon(at: build.addingTimeInterval(82 * 86_400)))
+        #expect(version.expiresSoon(at: build.addingTimeInterval(83 * 86_400)))
+        #expect(version.expiresSoon(at: build.addingTimeInterval(91 * 86_400)))
+    }
+
     @Test func rejectsUnknownFormat() {
         #expect(SoloistVersion(versionOutput: "something else 1.0") == nil)
     }

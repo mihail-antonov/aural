@@ -22,11 +22,10 @@ struct AuralApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
+    private lazy var shortcuts = KeyboardShortcuts(model: model)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // `AsyncImage` uses the shared URL cache, which by default also keeps
-        // downloaded images in memory. Keep them on disk only (capped).
-        URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 20 * 1024 * 1024)
+        shortcuts.start()
         Task { await model.launch() }
     }
 

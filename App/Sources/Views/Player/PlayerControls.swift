@@ -15,6 +15,14 @@ struct MoreMenu: View {
                 Button(model.library == nil ? "Connect Your Library…" : "Change Spotify Client ID…",
                        systemImage: "person.badge.key") { model.openLibrarySetup() }
             }
+            if model.soloistExpiresSoon {
+                Section {
+                    Button("Update Soloist", systemImage: "arrow.down.circle") {
+                        Task { await model.updateSoloist() }
+                    }
+                    .disabled(model.isUpdatingSoloist)
+                }
+            }
             Section {
                 Text("Aural \(Self.appVersion)")
                 if let version = model.soloistVersion {
@@ -34,6 +42,45 @@ struct MoreMenu: View {
 
     /// `CFBundleShortVersionString`, set by `MARKETING_VERSION` in project.yml.
     private static let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+}
+
+/// Shown in the toolbar during Soloist's last week: Spotify's builds stop
+/// working 90 days after release. Updating stops the music for a moment;
+/// the track comes back paused where it was. If the update fails, the
+/// button opens Spotify's download page instead.
+struct SoloistUpdateButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Group {
+            if model.isUpdatingSoloist {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Updating Soloist…")
+                }
+                .font(.caption)
+                .padding(.horizontal, 10)
+            } else if let error = model.soloistUpdateError {
+                Link(destination: SoloistInstaller.downloadsPageURL) {
+                    Label("Download Soloist", systemImage: "arrow.up.right")
+                        .font(.caption)
+                }
+                .help("The update failed: \(error) Open Spotify's download page.")
+            } else {
+                Button("Update Soloist", systemImage: "arrow.down.circle") {
+                    Task { await model.updateSoloist() }
+                }
+                .font(.caption)
+                .help(expiryHelp)
+            }
+        }
+        .foregroundStyle(Theme.accent)
+    }
+
+    private var expiryHelp: String {
+        guard let expiry = model.soloistVersion?.expiryDate else { return "Update Soloist" }
+        return "This Soloist build stops working on \(expiry.formatted(date: .long, time: .omitted))."
+    }
 }
 
 /// Shuffle, previous, play/pause, next, repeat.

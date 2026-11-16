@@ -80,6 +80,8 @@ struct Probe {
                 say("queue    \(queue.upNext.count) up next [\(sources)]; first: \(queue.upNext.first.map { "\($0.track.title) (\($0.track.durationMs) ms)" } ?? "-")")
             case .loginRejected:
                 say("login    rejected — the API key is invalid")
+            case .updateRequired:
+                say("error    this Soloist build has expired — update it")
             case .sourceStopped(let message), .error(let message):
                 say("error    \(message)")
             }

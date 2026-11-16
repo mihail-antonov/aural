@@ -3,20 +3,39 @@ import Foundation
 import ImageIO
 
 /// Loads cover art downscaled to the size it is shown at, so a full-size image
-/// is never decoded into memory. (A capped on-disk cache is added in Stage 7.)
+/// is never decoded into memory. Downloads go through `ArtworkCache` (on disk,
+/// capped), so a cover is fetched from the network only once.
 public enum ArtworkLoader {
-    /// No URL cache: images must not pile up in memory.
+    /// No URL cache: `ArtworkCache` keeps the files, and nothing piles up in memory.
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         return URLSession(configuration: configuration)
     }()
 
-    public enum LoadError: Error { case undecodable }
+    public enum LoadError: Error {
+        case undecodable
+        case httpStatus(Int)
+    }
 
     /// - Parameter maxPixelSize: longest side of the result, in pixels.
-    public static func load(_ url: URL, maxPixelSize: Int) async throws -> CGImage {
-        let (data, _) = try await session.data(from: url)
+    public static func load(_ url: URL, maxPixelSize: Int, cache: ArtworkCache = .shared) async throws -> CGImage {
+        let data: Data
+        if let cached = await cache.data(for: url) {
+            data = cached
+        } else {
+            let (downloaded, response) = try await session.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw LoadError.httpStatus(http.statusCode) }
+            data = downloaded
+            await cache.store(data, for: url)
+        }
+        try Task.checkCancellation()
+        return try decode(data, maxPixelSize: maxPixelSize)
+    }
+
+    /// Decodes straight to the smaller size. The `Data` (a few dozen KB of
+    /// JPEG) is released when this returns; only the small bitmap stays.
+    static func decode(_ data: Data, maxPixelSize: Int) throws -> CGImage {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { throw LoadError.undecodable }
         // ImageIO decodes straight to the smaller size instead of full size first.
         let options: [CFString: Any] = [

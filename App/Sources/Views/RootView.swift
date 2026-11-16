@@ -35,6 +35,10 @@ struct RootView: View {
         // height and the window buttons never move. Only the player has the
         // `…` menu; other screens hold an empty space of the same size.
         .toolbar {
+            // Non-blocking notice in the last week before Soloist expires.
+            if model.phase == .player, model.soloistExpiresSoon || model.isUpdatingSoloist {
+                ToolbarItem(placement: .principal) { SoloistUpdateButton() }
+            }
             // Pushes the menu to the far right end of the toolbar.
             ToolbarSpacer(.flexible)
             ToolbarItem(placement: .primaryAction) {

@@ -19,8 +19,9 @@ struct SoloistHistory {
         case play(uri: String)
     }
 
-    /// Like Spotify: after this point, "previous" restarts the current track.
-    static let restartThresholdMs = 3_000
+    /// After this point, "previous" restarts the current track (everywhere,
+    /// also in playlists and albums); before it, it goes to the previous track.
+    static let restartThresholdMs = 5_000
     /// Bounded, so the history never grows without limit.
     static let capacity = 50
 
@@ -42,9 +43,11 @@ struct SoloistHistory {
     /// Decides what "previous" does. `contextType` is Soloist's `entity_type`
     /// of the current context (`album`, `playlist`, `track`, …).
     mutating func previous(currentURI: String?, positionMs: Int, contextType: String?) -> PreviousAction {
+        // Checked first, so Aural decides the restart point itself: Soloist's
+        // own `skip_prev` in a playlist / album uses its own (undocumented) one.
+        guard positionMs < Self.restartThresholdMs else { return .restart }
         if contextType == "album" || contextType == "playlist" { return .skipInContext }
-        guard positionMs < Self.restartThresholdMs,
-              let currentURI, played.last == currentURI, played.count >= 2
+        guard let currentURI, played.last == currentURI, played.count >= 2
         else { return .restart }
 
         played.removeLast()

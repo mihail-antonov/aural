@@ -71,6 +71,12 @@ final class AppModel {
 
     /// Installed Soloist version, for the `…` menu.
     var soloistVersion: SoloistVersion? { setup.installedVersion }
+    /// Soloist expires within a week: the player offers the update.
+    var soloistExpiresSoon: Bool { soloistVersion?.expiresSoon() ?? false }
+    private(set) var isUpdatingSoloist = false
+    /// Why the last update from the player failed; the player then links
+    /// to Spotify's download page instead.
+    private(set) var soloistUpdateError: String?
 
     let setup: SetupModel
 
@@ -121,6 +127,10 @@ final class AppModel {
 
         do {
             try await startSoloist(apiKey: storedKey)
+        } catch .buildExpired {
+            setup.showUpdateStep()
+            phase = .setup
+            return
         } catch {
             setup.showKeyStep(error: error.localizedDescription)
             phase = .setup
@@ -143,12 +153,15 @@ final class AppModel {
 
     // MARK: - Soloist connection
 
-    private func startSoloist(apiKey: String) async throws {
+    private func startSoloist(apiKey: String) async throws(SoloistError) {
         await stopSoloist()
         let source = SoloistSource(configuration: configuration)
         try await source.start(apiKey: apiKey)
         soloist = source
         problem = nil
+        // Soloist forgets its playback when it stops: show the last session's
+        // track (paused) until something else plays.
+        if let snapshot = PlaybackSnapshot.load() { await source.restore(snapshot) }
         // Single consumer of the event stream for the whole app.
         eventsTask = Task { [weak self] in
             for await event in source.events {
@@ -161,6 +174,7 @@ final class AppModel {
         eventsTask?.cancel()
         eventsTask = nil
         if let soloist {
+            await saveSnapshot() // with the current position
             self.soloist = nil
             await soloist.stop()
         }
@@ -177,6 +191,8 @@ final class AppModel {
             if trackChanged {
                 loadArtwork(for: state.track)
                 refreshLiked(for: state.track)
+                // Also saved here, not only on quit, in case Aural crashes.
+                Task { await saveSnapshot() }
             }
             // Never show the previous track's cover in Control Center.
             nowPlaying?.update(state, artwork: artworkTrackID == state.track?.id ? artwork : nil)
@@ -194,12 +210,31 @@ final class AppModel {
         case .loginRejected:
             setup.loginRejected()
             if phase != .setup { phase = .setup }
+        case .updateRequired:
+            log.error("Soloist build expired")
+            Task { await stopSoloist() }
+            setup.showUpdateStep()
+            phase = .setup
         case .sourceStopped(let message):
             problem = message
             log.error("Soloist stopped: \(message, privacy: .public)")
         case .error(let message):
             log.error("Soloist error: \(message, privacy: .public)")
         }
+    }
+
+    /// Saves what is playing for the next launch. The file is written off
+    /// the main actor (it is small, but the UI never waits on disk).
+    private func saveSnapshot() async {
+        guard let soloist, let snapshot = await soloist.snapshot() else { return }
+        let log = self.log
+        await Task.detached(priority: .utility) {
+            do {
+                try snapshot.save()
+            } catch {
+                log.error("Could not save the last playback: \(error.localizedDescription, privacy: .public)")
+            }
+        }.value
     }
 
     private func loadArtwork(for track: Track?) {
@@ -246,6 +281,36 @@ final class AppModel {
             settleTask = nil
             userPlayIntent = nil
             showsPlaying = playback.status == .playing || playback.status == .buffering
+        }
+    }
+
+    /// Updates Soloist from the player (before it expires): stops it,
+    /// installs Spotify's latest build, and starts it again with the stored
+    /// key. The last track comes back paused, at the same position.
+    func updateSoloist() async {
+        guard !isUpdatingSoloist,
+              let storedKey = try? Keychain.readPassword(service: SoloistConfiguration.apiKeyKeychainService)
+        else { return }
+        isUpdatingSoloist = true
+        soloistUpdateError = nil
+        defer { isUpdatingSoloist = false }
+
+        await stopSoloist()
+        do {
+            try await setup.update()
+            log.notice("Soloist updated to \(self.soloistVersion?.version ?? "?", privacy: .public)")
+        } catch {
+            // The old build still runs until it expires.
+            log.error("Soloist update failed: \(error.localizedDescription, privacy: .public)")
+            soloistUpdateError = error.localizedDescription
+        }
+        do {
+            try await startSoloist(apiKey: storedKey)
+        } catch .buildExpired {
+            setup.showUpdateStep()
+            phase = .setup
+        } catch {
+            problem = error.localizedDescription
         }
     }
 

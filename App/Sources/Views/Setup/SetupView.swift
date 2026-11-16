@@ -13,6 +13,12 @@ struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             StepProgress(current: setup.step)
+                // An update is not part of the first-run steps; the bars
+                // stay in place (hidden) so nothing moves.
+                .opacity(setup.needsUpdate ? 0 : 1)
+                // Centered in a header-high row, so the bars sit on the same
+                // line as the library's back button and title.
+                .frame(height: Metrics.headerHeight)
                 .padding(.top, Metrics.contentTop)
 
             Group {
@@ -200,20 +206,27 @@ private struct ErrorText: View {
 
 // MARK: - Step 1
 
+/// Also the "Soloist has expired" screen: Spotify's builds stop working 90
+/// days after they are built, and the same download replaces the old one.
 private struct InstallStepView: View {
     let setup: SetupModel
 
     var body: some View {
         StepLayout(
-            systemImage: "arrow.down.circle",
-            title: "Install Soloist",
-            message: "Aural plays music through Spotify Soloist, Spotify's official player. It is downloaded directly from Spotify and checked before it runs."
+            systemImage: setup.needsUpdate ? "clock.badge.exclamationmark" : "arrow.down.circle",
+            title: setup.needsUpdate ? "Update Soloist" : "Install Soloist",
+            message: setup.needsUpdate
+                ? "This Soloist build has expired: Spotify's builds stop working 90 days after release. Aural downloads the latest one from Spotify and checks it before it runs. Your key and pairing are kept."
+                : "Aural plays music through Spotify Soloist, Spotify's official player. It is downloaded directly from Spotify and checked before it runs."
         ) {
             if let error = setup.installError {
                 ErrorText(message: error)
             }
         } actions: {
-            PrimaryButton(title: setup.isInstalling ? "Downloading and checking…" : "Install Soloist", isBusy: setup.isInstalling) {
+            PrimaryButton(
+                title: setup.isInstalling ? "Downloading and checking…" : (setup.needsUpdate ? "Update Soloist" : "Install Soloist"),
+                isBusy: setup.isInstalling
+            ) {
                 Task { await setup.install() }
             }
             .disabled(setup.isInstalling)

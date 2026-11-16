@@ -22,6 +22,11 @@ public actor SoloistSource: PlaybackSource {
     /// Soloist's own upcoming entries from the latest `queue_changed`.
     private var soloistUpcoming: [QueueEntry] = []
     private var queue = PlaybackQueue()
+    /// The last session's track, shown paused until the user plays it or
+    /// Soloist reports a track of its own (see `restore`).
+    private var restored: PlaybackSnapshot?
+    /// Where to seek once the restored track is playing.
+    private var pendingSeek: (uri: String, positionMs: Int)?
 
     public init(configuration: SoloistConfiguration = SoloistConfiguration()) {
         (events, continuation) = AsyncStream.makeStream(
@@ -38,6 +43,7 @@ public actor SoloistSource: PlaybackSource {
         let continuation = self.continuation
         let (mode, url) = try await process.start(apiKey: apiKey) { notice in
             switch notice {
+            case .exited(.buildExpired): continuation.yield(.updateRequired)
             case .exited(let error): continuation.yield(.sourceStopped(error.localizedDescription))
             case .loginRejected: continuation.yield(.loginRejected)
             }
@@ -100,7 +106,15 @@ public actor SoloistSource: PlaybackSource {
             break
         }
 
-        let newState = state.applying(event)
+        var newState = state.applying(event)
+        if let restored {
+            if newState.track == nil {
+                // Soloist has nothing loaded: keep showing the restored track.
+                newState = Self.state(showing: restored, on: newState)
+            } else {
+                self.restored = nil // Soloist plays something: that wins.
+            }
+        }
         let trackStarted = newState.track.map(\.id).flatMap { $0 != state.track?.id ? $0 : nil }
         if let uri = trackStarted {
             history.trackStarted(uri)
@@ -114,6 +128,7 @@ public actor SoloistSource: PlaybackSource {
             state = newState
             continuation.yield(.stateChanged(newState))
         }
+        seekRestoredTrackIfReady()
 
         if case .queueChanged(let upcoming) = event {
             soloistUpcoming = QueueEntry.entries(soloist: upcoming)
@@ -186,12 +201,19 @@ public actor SoloistSource: PlaybackSource {
         if let next = step.queue { try await send(.addToQueue(uri: next)) }
     }
 
-    public func resume() async throws { try await control(.play(uri: nil)) }
+    public func resume() async throws {
+        if restored != nil { return try await playRestored(skippingCurrent: false) }
+        try await control(.play(uri: nil))
+    }
     public func pause() async throws { try await control(.pause) }
-    public func next() async throws { try await control(.skipNext) }
-    /// Like Spotify: restarts the track after 3 s, otherwise goes to the track
-    /// that played before (see `SoloistHistory`).
+    public func next() async throws {
+        if restored != nil { return try await playRestored(skippingCurrent: true) }
+        try await control(.skipNext)
+    }
+    /// Restarts the track after 5 s, otherwise goes to the track that played
+    /// before (see `SoloistHistory`).
     public func previous() async throws {
+        if restored != nil { return try await seekAndUpdate(to: 0) }
         let positionMs = state.position.current(durationMs: state.track?.durationMs)
         let inContext = contextType == "album" || contextType == "playlist"
         // Inside a list Aural is playing: the list's previous track.
@@ -202,14 +224,39 @@ public actor SoloistSource: PlaybackSource {
             return
         }
         switch history.previous(currentURI: state.track?.id, positionMs: positionMs, contextType: contextType) {
-        case .skipInContext: try await control(.skipPrevious)
-        case .restart: try await control(.seek(positionMs: 0))
+        case .skipInContext:
+            // Soloist's `skip_prev` restarts the track instead when it is
+            // past its own threshold (~3 s), which would need a second press
+            // between 3 and 5 s. At 0 it always goes to the previous track.
+            try await control(.seek(positionMs: 0))
+            try await control(.skipPrevious)
+        case .restart: try await seekAndUpdate(to: 0)
         case .play(let uri):
             listQueue.stop()
             try await control(.play(uri: uri))
         }
     }
-    public func seek(toMs positionMs: Int) async throws { try await control(.seek(positionMs: max(0, positionMs))) }
+    public func seek(toMs positionMs: Int) async throws { try await seekAndUpdate(to: max(0, positionMs)) }
+
+    /// Seeks, then moves the position anchor right away. Soloist does not
+    /// always report a seek: restarting a track that started at 0 sends no
+    /// `position_sync` (its last reported anchor was already 0), so the
+    /// progress ring would keep running from the old position. A later
+    /// report from Soloist replaces this estimate.
+    private func seekAndUpdate(to positionMs: Int) async throws {
+        if restored != nil {
+            // Nothing is loaded in Soloist yet: remember the position for `resume`.
+            restored?.positionMs = positionMs
+        } else {
+            try await control(.seek(positionMs: positionMs))
+        }
+        var newState = state
+        newState.position = PlaybackPosition(positionMs: positionMs, timestamp: .now, speed: state.position.speed)
+        if newState != state {
+            state = newState
+            continuation.yield(.stateChanged(newState))
+        }
+    }
     public func setVolume(_ volume: Int) async throws { try await send(.setVolume(min(100, max(0, volume)))) }
     public func setShuffle(_ enabled: Bool) async throws { try await control(.setShuffle(enabled)) }
 
@@ -233,6 +280,7 @@ public actor SoloistSource: PlaybackSource {
     /// Makes Soloist Spotify's active device (taking playback from the other
     /// device), then resumes there.
     public func playHere() async throws {
+        if restored != nil { return try await playRestored(skippingCurrent: false) }
         try await send(.activate)
         try await send(.play(uri: nil))
     }
@@ -253,5 +301,83 @@ public actor SoloistSource: PlaybackSource {
     private func send(_ command: SoloistCommand) async throws {
         guard let connection else { throw SoloistError.notConnected }
         try await connection.send(command)
+    }
+
+    // MARK: - Last session (PlaybackSource)
+
+    public func snapshot() -> PlaybackSnapshot? {
+        if let restored { return restored } // not played since launch
+        guard let track = state.track else { return nil }
+        let upcoming: [Track] = if listQueue.isPlaying(track.id) {
+            listQueue.upcoming.prefix(PlaybackQueue.limit).compactMap { listTracks[$0] }
+        } else {
+            // The playlist / album (Soloist reports at most 10) and queued
+            // songs; autoplay picks new songs by itself anyway.
+            soloistUpcoming.filter { $0.source != .autoplay && !listQueue.isStale($0.track.id) }.map(\.track)
+        }
+        return PlaybackSnapshot(
+            track: track,
+            positionMs: state.position.current(durationMs: track.durationMs),
+            contextName: state.contextName,
+            upcoming: upcoming
+        )
+    }
+
+    public func restore(_ snapshot: PlaybackSnapshot) {
+        guard state.track == nil else { return }
+        restored = snapshot
+        state = Self.state(showing: snapshot, on: state)
+        continuation.yield(.stateChanged(state))
+    }
+
+    /// The restored track as a paused state. Only play and seek are offered:
+    /// shuffle and repeat need a context Soloist has not loaded.
+    private static func state(showing snapshot: PlaybackSnapshot, on base: PlaybackState) -> PlaybackState {
+        var state = base
+        state.status = .paused
+        state.track = snapshot.track
+        state.position = PlaybackPosition(positionMs: snapshot.positionMs, timestamp: .now, speed: 0)
+        state.contextName = snapshot.contextName
+        state.availableActions = [.play, .seek, .skipNext]
+        return state
+    }
+
+    /// Seeks the restored track to its saved position once Soloist reports
+    /// it as playing. Sent any earlier (e.g. on `track_changed`, while the
+    /// track is still loading), Soloist ignores the seek and the track
+    /// starts at 0:00 (seen in testing). One retry if it still did not move.
+    private func seekRestoredTrackIfReady() {
+        guard let seek = pendingSeek, state.track?.id == seek.uri, state.status == .playing else { return }
+        pendingSeek = nil
+        Task {
+            try? await seekAndUpdate(to: seek.positionMs)
+            try? await Task.sleep(for: .seconds(1.5))
+            // The local estimate is replaced by Soloist's next report: if
+            // that says it is still near the start, the seek was dropped.
+            guard state.track?.id == seek.uri,
+                  state.position.current(durationMs: state.track?.durationMs) < seek.positionMs - 3_000
+            else { return }
+            Log.soloist.notice("Restored position was not applied; seeking again")
+            try? await seekAndUpdate(to: seek.positionMs)
+        }
+    }
+
+    /// Plays the restored track and what followed it as a list (Soloist's
+    /// `play` cannot start a playlist or album at a given track), then seeks
+    /// to the saved position once the track has started.
+    private func playRestored(skippingCurrent: Bool) async throws {
+        guard let snapshot = restored else { return }
+        let tracks = [snapshot.track] + snapshot.upcoming
+        let index = skippingCurrent ? 1 : 0
+        guard tracks.indices.contains(index) else { return }
+        restored = nil
+        // Forget the shown track without telling the UI, so Soloist's report
+        // counts as "track started" (for the list) but the player does not
+        // flash empty in between.
+        state.track = nil
+        if !skippingCurrent, snapshot.positionMs > 0 {
+            pendingSeek = (snapshot.track.id, snapshot.positionMs)
+        }
+        try await play(tracks: tracks, startingAt: index)
     }
 }

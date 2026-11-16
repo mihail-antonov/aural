@@ -15,7 +15,8 @@ targets:
   Aural:
     type: application
     platform: macOS
-    sources: [Sources]
+    # Resources holds the asset catalog (app icon).
+    sources: [Sources, Resources]
     dependencies:
       - package: AuralCore
     settings:
@@ -34,6 +35,7 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         # No App Sandbox: Aural downloads and runs Spotify's Soloist executable.
         ENABLE_APP_SANDBOX: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Aural
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music

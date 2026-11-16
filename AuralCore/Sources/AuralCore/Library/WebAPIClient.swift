@@ -7,7 +7,8 @@ public enum WebAPIError: Error, Equatable {
     /// the app's Development Mode allowlist.
     case forbidden(String)
     case notFound
-    case rateLimited
+    /// 429. Spotify asked Aural to wait until this time.
+    case rateLimited(until: Date)
     case http(status: Int, message: String)
     case invalidResponse(String)
     case network(String)
@@ -19,11 +20,20 @@ extension WebAPIError: LocalizedError {
         case .reauthorizationRequired: "Your Spotify login has expired. Please sign in again."
         case .forbidden(let message): "Spotify does not allow this (\(message))."
         case .notFound: "Not found on Spotify."
-        case .rateLimited: "Spotify is limiting requests right now. Please try again in a moment."
+        case .rateLimited(let until): "Spotify is limiting requests. Please try again in \(Self.describeWait(until: until))."
         case .http(let status, let message): "Spotify error \(status): \(message)"
         case .invalidResponse(let reason): "Unexpected response from Spotify: \(reason)"
         case .network(let reason): "Could not reach Spotify: \(reason)"
         }
+    }
+
+    /// "40 seconds", "3 minutes", "2 hours" from now (rounded up).
+    static func describeWait(until date: Date, now: Date = .now) -> String {
+        let seconds = max(1, Int(date.timeIntervalSince(now).rounded(.up)))
+        func plural(_ count: Int, _ unit: String) -> String { "\(count) \(unit)\(count == 1 ? "" : "s")" }
+        if seconds < 60 { return plural(seconds, "second") }
+        if seconds < 3600 { return plural((seconds + 59) / 60, "minute") }
+        return plural((seconds + 3599) / 3600, "hour")
     }
 }
 
@@ -36,6 +46,13 @@ public actor WebAPIClient {
     private var tokens: SpotifyTokens
     private let onTokensChanged: @Sendable (SpotifyTokens) -> Void
     private let session: URLSession
+    /// Set by a 429: until then every request fails right away instead of
+    /// asking again. (Requests during a rate limit can make Spotify extend it.)
+    private var blockedUntil: Date?
+
+    /// Short waits are sat out and the request retried; longer ones fail at
+    /// once, so the UI shows the error instead of a spinner.
+    static let maxRetryWait = 5.0
 
     public init(auth: SpotifyAuth, tokens: SpotifyTokens, onTokensChanged: @escaping @Sendable (SpotifyTokens) -> Void = { _ in }) {
         self.auth = auth
@@ -85,6 +102,7 @@ public actor WebAPIClient {
     // MARK: - Request
 
     private func perform(_ method: String, _ path: String, query: [URLQueryItem], isRetry: Bool = false) async throws(WebAPIError) -> Data {
+        if let blockedUntil, blockedUntil > .now { throw .rateLimited(until: blockedUntil) }
         if tokens.needsRefresh() { try await refreshTokens() }
 
         var components = URLComponents(url: Self.baseURL.appending(path: path), resolvingAgainstBaseURL: false)
@@ -118,13 +136,16 @@ public actor WebAPIClient {
             throw .forbidden(Self.message(from: data))
         case 404:
             throw .notFound
-        case 429 where !isRetry:
-            // Wait as long as Spotify asks (capped), then retry once.
-            let seconds = min(Double(http?.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 2, 30)
-            try? await Task.sleep(for: .seconds(seconds))
-            return try await perform(method, path, query: query, isRetry: true)
         case 429:
-            throw .rateLimited
+            let seconds = Self.retryAfter(http?.value(forHTTPHeaderField: "Retry-After"))
+            Log.webAPI.notice("429 for \(path, privacy: .public): Retry-After \(seconds, privacy: .public) s")
+            if !isRetry, seconds <= Self.maxRetryWait {
+                try? await Task.sleep(for: .seconds(seconds))
+                return try await perform(method, path, query: query, isRetry: true)
+            }
+            let until = Date.now + seconds
+            blockedUntil = max(blockedUntil ?? until, until)
+            throw .rateLimited(until: until)
         case 502...504 where !isRetry:
             // Spotify's servers are briefly unavailable (seen when several
             // library requests run at once). Every Aural request is safe to
@@ -146,6 +167,12 @@ public actor WebAPIClient {
         } catch {
             throw .network(error.localizedDescription)
         }
+    }
+
+    /// Seconds from a `Retry-After` header; 2 if it is missing or unreadable.
+    static func retryAfter(_ header: String?) -> Double {
+        guard let header, let seconds = Double(header.trimmingCharacters(in: .whitespaces)), seconds >= 0 else { return 2 }
+        return seconds
     }
 
     /// Spotify errors look like `{"error":{"status":403,"message":"…"}}`.

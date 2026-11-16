@@ -153,13 +153,10 @@ struct CollectionHeader: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            AsyncImage(url: imageURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
+            ArtworkImage(url: imageURL, size: Self.coverSize) {
                 Rectangle().fill(.white.opacity(0.08))
                     .overlay { Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.white.opacity(0.3)) }
             }
-            .frame(width: Self.coverSize, height: Self.coverSize)
             .clipShape(isCircular ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: 10)))
             .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
             .padding(.bottom, 6)

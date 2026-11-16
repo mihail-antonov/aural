@@ -6,6 +6,9 @@ enum Theme {
     /// Warm peach accent: progress ring, knob, time highlight, heart, active toggles.
     static let accent = Color(red: 0xF0 / 255, green: 0xB8 / 255, blue: 0x78 / 255)
 
+    /// The record label in the middle of the cover, from the app icon (#FA6A32).
+    static let vinylLabel = Color(red: 0xFA / 255, green: 0x6A / 255, blue: 0x32 / 255)
+
     /// Icons that are not hovered are slightly see-through.
     static let iconOpacity = 0.7
     /// Icons that are not highlighted: white, slightly see-through.

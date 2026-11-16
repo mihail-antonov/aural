@@ -5,7 +5,8 @@ import Foundation
 // All of them are small value types (`struct` / `enum`): copying them is cheap
 // and they are `Sendable`, so they can be passed between actors safely.
 
-public struct Track: Sendable, Equatable {
+/// `Codable` so the last track can be saved and restored on the next launch.
+public struct Track: Sendable, Equatable, Codable {
     public let id: String
     public let title: String
     public let artists: [String]
@@ -147,6 +148,9 @@ public enum PlaybackEvent: Sendable, Equatable {
     case loginRejected
     /// The playback engine stopped unexpectedly; the message is for logs / UI.
     case sourceStopped(String)
+    /// The playback engine is too old to run and must be updated (for
+    /// Soloist: the build expired, exit code 10).
+    case updateRequired
     /// A command was rejected or something went wrong; the message is for logs / UI.
     case error(String)
 }

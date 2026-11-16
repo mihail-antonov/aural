@@ -32,4 +32,11 @@ public protocol PlaybackSource: Sendable {
     func playHere() async throws
     /// Adds a track to the end of the queue.
     func addToQueue(uri: String) async throws
+    /// What is playing now, to be restored on the next launch. Nil when
+    /// nothing is loaded.
+    func snapshot() async -> PlaybackSnapshot?
+    /// Shows a saved snapshot as the paused current track while the engine
+    /// has nothing loaded; `resume()` then plays it from the saved position.
+    /// Ignored once the engine reports a track of its own.
+    func restore(_ snapshot: PlaybackSnapshot) async
 }

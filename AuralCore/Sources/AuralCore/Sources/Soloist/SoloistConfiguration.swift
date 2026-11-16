@@ -5,8 +5,8 @@ import Foundation
 /// `defaultExecutableURL` is the single source of truth for the Soloist
 /// executable path. Nothing else in Aural hard-codes it.
 public struct SoloistConfiguration: Sendable {
-    /// Aural's own Soloist install: `~/Library/Application Support/Aural/soloist/soloist`.
-    /// (In-app install/update comes in Stage 7; until then use an override.)
+    /// Aural's own Soloist install: `~/Library/Application Support/Aural/soloist/soloist`,
+    /// installed and updated by `SoloistInstaller`. Tools can pass an override.
     public static var defaultExecutableURL: URL {
         URL.applicationSupportDirectory
             .appending(path: "Aural/soloist/soloist", directoryHint: .notDirectory)

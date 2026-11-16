@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Circular progress around the cover, open at the top like the design. It
-/// fills from left to right: from 11 o'clock counterclockwise, along the
-/// bottom, up to 1 o'clock. It looks like the system slider bent into an arc:
+/// fills from right to left: from 1 o'clock clockwise, along the bottom, up
+/// to 11 o'clock. It looks like the system slider bent into an arc:
 /// a thick rounded track, an accent fill and a glowing accent knob.
 ///
 /// Dragging the knob seeks live; clicking the ring glides the knob to the
@@ -218,33 +218,32 @@ private struct RingDrawing: View, Animatable {
     // MARK: - Geometry
     //
     // Angles are in degrees, measured clockwise from 3 o'clock (SwiftUI's
-    // screen coordinates). The ring runs counterclockwise from 11 o'clock
-    // (-120°), so progress subtracts from the angle.
+    // screen coordinates). The ring runs clockwise from 1 o'clock (-60°),
+    // so progress adds to the angle.
 
-    private static let startAngle = -120.0
+    private static let startAngle = -60.0
 
     static func radius(in size: CGSize) -> Double {
         (min(size.width, size.height) - knobSize) / 2
     }
 
     private static func arc(to fraction: Double) -> some Shape {
-        // `trim` draws clockwise from 3 o'clock. Drawing the arc clockwise from
-        // its far end (1 o'clock, -60° = start - sweep) back to the current
-        // position gives the counterclockwise-filling look.
+        // `trim` draws clockwise from 3 o'clock; rotating it to the start
+        // angle makes it draw clockwise from 1 o'clock.
         Circle()
-            .trim(from: (1 - fraction) * sweep / 360, to: sweep / 360)
-            .rotation(.degrees(startAngle - sweep))
+            .trim(from: 0, to: fraction * sweep / 360)
+            .rotation(.degrees(startAngle))
     }
 
     private static func point(at fraction: Double, radius: Double, center: CGPoint) -> CGPoint {
-        let radians = (startAngle - fraction * sweep) * .pi / 180
+        let radians = (startAngle + fraction * sweep) * .pi / 180
         return CGPoint(x: center.x + radius * cos(radians), y: center.y + radius * sin(radians))
     }
 
     /// Maps a point to 0…1 along the ring; points in the top gap snap to the nearer end.
     static func fraction(at location: CGPoint, center: CGPoint) -> Double {
         let degrees = atan2(location.y - center.y, location.x - center.x) * 180 / .pi
-        var relative = (startAngle - degrees).truncatingRemainder(dividingBy: 360)
+        var relative = (degrees - startAngle).truncatingRemainder(dividingBy: 360)
         if relative < 0 { relative += 360 }
         if relative > sweep {
             relative = relative > sweep + (360 - sweep) / 2 ? 0 : sweep

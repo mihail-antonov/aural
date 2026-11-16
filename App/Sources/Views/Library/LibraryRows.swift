@@ -215,20 +215,18 @@ extension View {
 
 /// Small cover image. The URL already points to Spotify's smallest suitable
 /// size (~64 px), so the decoded image stays tiny; rows that scroll away
-/// release theirs because `List` discards off-screen rows.
+/// release theirs because `List` discards off-screen rows. Files come from
+/// the disk cache after the first load (`ArtworkImage`).
 struct Thumbnail: View {
     let url: URL?
     let size: CGFloat
     var circular = false
 
     var body: some View {
-        AsyncImage(url: url) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
+        ArtworkImage(url: url, size: size) {
             Rectangle().fill(.white.opacity(0.08))
                 .overlay { Image(systemName: "music.note").foregroundStyle(.white.opacity(0.3)) }
         }
-        .frame(width: size, height: size)
         .clipShape(circular ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: RowMetrics.cornerRadius)))
     }
 }

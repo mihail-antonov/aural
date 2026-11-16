@@ -32,6 +32,9 @@ final class SetupModel {
     private(set) var installedVersion: SoloistVersion?
     private(set) var isInstalling = false
     private(set) var installError: String?
+    /// The installed build has expired (found at launch, or Soloist exited
+    /// with code 10): step 1 then reads "Update Soloist".
+    private(set) var needsUpdate = false
 
     // Step 2
     var keyText = ""
@@ -76,8 +79,19 @@ final class SetupModel {
         let version = await installer.installedVersion()
         let usable = version.map { !$0.isExpired() } ?? false
         installedVersion = usable ? version : nil
+        needsUpdate = version?.isExpired() == true
         step = usable ? .key : .install
         return usable
+    }
+
+    /// Soloist's build expired: step 1, worded as an update.
+    func showUpdateStep() {
+        stopPairingWatch()
+        needsUpdate = true
+        installError = nil
+        installedVersion = nil
+        isChangingSettings = false
+        step = .install
     }
 
     func showKeyStep(error: String?) {
@@ -126,11 +140,34 @@ final class SetupModel {
         defer { isInstalling = false }
         do {
             installedVersion = try await installer.install()
-            step = .key
+            needsUpdate = false
         } catch {
             log.error("Install failed: \(error.localizedDescription, privacy: .public)")
             installError = error.localizedDescription
+            return
         }
+        // After an update (or a reinstall) the stored key and pairing still
+        // work: start Soloist with them instead of asking for the key again.
+        guard let storedKey = try? Keychain.readPassword(service: SoloistConfiguration.apiKeyKeychainService) else {
+            step = .key
+            return
+        }
+        do {
+            try await delegate?.setupStartSoloist(apiKey: storedKey)
+        } catch {
+            showKeyStep(error: error.localizedDescription)
+            return
+        }
+        showPairStep(pendingKey: nil)
+        // The saved pairing session usually logs in right away.
+        if delegate?.setupIsLoggedIn() == true { loginSucceeded() }
+    }
+
+    /// Replaces the installed build with Spotify's latest, for an update
+    /// started from the player (Soloist must be stopped first).
+    func update() async throws(SoloistInstallError) {
+        installedVersion = try await installer.install()
+        needsUpdate = false
     }
 
     // MARK: - Step 2: API key

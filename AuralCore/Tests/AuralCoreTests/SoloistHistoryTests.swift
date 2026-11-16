@@ -29,12 +29,20 @@ struct SoloistHistoryTests {
         #expect(history.tracksToRequeue(upcoming: queued("spotify:track:x"), currentURI: "spotify:track:a").isEmpty)
     }
 
-    @Test func restartsAfterThreeSecondsOrWithoutHistory() {
+    @Test func restartsAfterFiveSecondsOrWithoutHistory() {
         var history = SoloistHistory()
         history.trackStarted("spotify:track:a")
         #expect(history.previous(currentURI: "spotify:track:a", positionMs: 0, contextType: "track") == .restart)
         history.trackStarted("spotify:track:b")
         #expect(history.previous(currentURI: "spotify:track:b", positionMs: 5_000, contextType: "track") == .restart)
+        #expect(history.previous(currentURI: "spotify:track:b", positionMs: 4_000, contextType: "track") == .play(uri: "spotify:track:a"))
+    }
+
+    @Test func restartsInPlaylistsAndAlbumsAfterFiveSeconds() {
+        var history = SoloistHistory()
+        history.trackStarted("spotify:track:a")
+        history.trackStarted("spotify:track:b")
+        #expect(history.previous(currentURI: "spotify:track:b", positionMs: 6_000, contextType: "playlist") == .restart)
     }
 
     @Test func playlistsAndAlbumsUseSoloistsOwnPrevious() {

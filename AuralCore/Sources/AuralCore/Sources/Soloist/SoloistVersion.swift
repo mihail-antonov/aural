@@ -18,6 +18,14 @@ public struct SoloistVersion: Sendable, Equatable {
         date >= expiryDate
     }
 
+    /// Days before expiry from which Aural offers the update.
+    public static let updateNoticeDays = 7
+
+    /// True in the last `updateNoticeDays` before expiry (and after it).
+    public func expiresSoon(at date: Date = .now) -> Bool {
+        date >= expiryDate.addingTimeInterval(-TimeInterval(Self.updateNoticeDays * 24 * 60 * 60))
+    }
+
     public init(version: String, buildDate: Date) {
         self.version = version
         self.buildDate = buildDate

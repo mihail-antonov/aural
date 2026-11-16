@@ -145,40 +145,75 @@ private struct PlayerHeader: View {
     }
 }
 
-/// Where the music plays: a speaker icon with a dropdown, in the accent
-/// color while Aural (Soloist) is Spotify's active device, dimmed white
-/// while another device plays. The menu offers "Playing in Spotify" /
-/// "Playing in Aural"; picking Aural takes playback over.
+/// Where the music plays: a speaker icon, in the accent color while Aural
+/// (Soloist) is Spotify's active device, dimmed white while another device
+/// plays. It opens a small popover with "Playing in Spotify" / "Playing in
+/// Aural"; picking Aural takes playback over.
 /// (Soloist does not say which other device; only shown while something is loaded.)
+///
+/// A popover, not a `Menu`: while a menu is open, AppKit holds the main
+/// thread and the spinning cover and the progress ring stop.
 private struct DeviceMenu: View {
     @Environment(AppModel.self) private var model
     let playback: PlaybackState
+    @State private var isOpen = false
 
     var body: some View {
         if playback.track != nil {
             let isHere = playback.isActiveDevice
-            Menu {
-                // Menu items with the system's checkmark (a `Toggle` in a menu).
-                // Only "Playing in Aural" does something: it takes playback
-                // over. "Playing in Spotify" just shows the state, so it is
-                // always disabled (Aural cannot pick another device).
-                Toggle("Playing in Spotify", isOn: .constant(!isHere))
-                    .disabled(true)
-                Toggle("Playing in Aural", isOn: Binding(
-                    get: { isHere },
-                    set: { playHere in if playHere { model.playHere() } }
-                ))
-                .disabled(isHere)
-            } label: {
-                Label(isHere ? "Playing in Aural" : "Playing in Spotify", systemImage: "hifispeaker")
+            Button(isHere ? "Playing in Aural" : "Playing in Spotify", systemImage: "hifispeaker") {
+                isOpen.toggle()
             }
-            .menuStyle(.button)
             .buttonStyle(IconButtonStyle(size: 15, frame: 28))
             .labelStyle(.iconOnly)
-            .menuIndicator(.hidden)
             .iconActive(isHere)
             .tooltip(isHere ? "Playing in Aural" : "Playing in Spotify")
+            .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    // "Playing in Spotify" only shows the state (Aural cannot
+                    // pick another device); "Playing in Aural" takes playback over.
+                    DeviceChoice(title: "Playing in Spotify", isSelected: !isHere) {}
+                        .disabled(true)
+                    DeviceChoice(title: "Playing in Aural", isSelected: isHere) {
+                        model.playHere()
+                        isOpen = false
+                    }
+                    .disabled(isHere)
+                }
+                .padding(8)
+            }
         }
+    }
+}
+
+/// One row of the device popover, with a checkmark like a menu item.
+private struct DeviceChoice: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    /// False when the row is `.disabled`, set from outside.
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(isSelected ? 1 : 0)
+                    .accessibilityHidden(true)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(minWidth: 160)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.borderless)
+        // Dimmed like a disabled menu item. (A fixed `.primary` would
+        // override the system's dimming and look clickable.)
+        .foregroundStyle(isEnabled ? .primary : .tertiary)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -204,14 +239,40 @@ private struct TimeLabel: View {
 
 private struct CoverWithRing: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let ringSize: Double
+
+    // The cover turns like a record while music plays. The angle is
+    // worked out from the clock (`angle(at:)`) and redrawn by a timeline
+    // only while spinning, like the ring. (A repeating SwiftUI animation
+    // could not be stopped on pause, and each play stacked another one.)
+    /// Angle reached when the spin last stopped (or started).
+    @State private var spinBase = 0.0
+    /// When the current spin started; nil while still.
+    @State private var spinStart: Date?
+
+    /// One slow turn: a real record (33⅓ rpm) would be dizzying.
+    private static let secondsPerTurn = 20.0
+
+    private var spins: Bool { model.showsPlaying && !reduceMotion }
+
+    /// The label is smaller than on a real record (or the icon), so it
+    /// leaves most of the album art visible.
+    private static let labelToCover = 0.22
 
     var body: some View {
         ZStack {
-            cover
-                .frame(width: ringSize * Metrics.coverToRing, height: ringSize * Metrics.coverToRing)
-                .clipShape(.circle)
-                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: spinStart == nil)) { context in
+                cover
+                    .frame(width: ringSize * Metrics.coverToRing, height: ringSize * Metrics.coverToRing)
+                    .clipShape(.circle)
+                    // Before the shadow, so the shadow stays below the cover.
+                    .rotationEffect(.degrees(angle(at: context.date)))
+            }
+            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+            // The record's label and spindle hole, as in the app icon. Round,
+            // so it does not need to turn with the cover.
+            VinylCenter(diameter: ringSize * Metrics.coverToRing * Self.labelToCover)
             // Only the ring redraws every frame, and only while playing.
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: model.playback.status != .playing)) { context in
                 let duration = model.playback.track?.durationMs ?? 0
@@ -226,6 +287,22 @@ private struct CoverWithRing: View {
             }
         }
         .frame(width: ringSize, height: ringSize)
+        .onChange(of: spins, initial: true) { _, spinning in updateSpin(spinning) }
+    }
+
+    private func angle(at date: Date) -> Double {
+        guard let spinStart else { return spinBase }
+        return spinBase + date.timeIntervalSince(spinStart) / Self.secondsPerTurn * 360
+    }
+
+    private func updateSpin(_ spinning: Bool) {
+        if spinning {
+            if spinStart == nil { spinStart = .now }
+        } else if spinStart != nil {
+            // Stop where it is.
+            spinBase = angle(at: .now).truncatingRemainder(dividingBy: 360)
+            spinStart = nil
+        }
     }
 
     /// When the track changes, the old cover fades out right away; the new
@@ -245,5 +322,24 @@ private struct CoverWithRing: View {
             }
         }
         .animation(.easeInOut(duration: 0.35), value: isCurrent)
+    }
+}
+
+/// The middle of a record, colors and proportions taken from the app icon:
+/// an orange-red label with a black spindle hole.
+private struct VinylCenter: View {
+    let diameter: Double
+
+    /// Spindle hole relative to the label, as in the icon (19 / 110 px).
+    private static let holeToLabel = 0.17
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Theme.vinylLabel)
+            Circle().fill(.black).frame(width: diameter * Self.holeToLabel, height: diameter * Self.holeToLabel)
+        }
+        .frame(width: diameter, height: diameter)
+        .shadow(color: .black.opacity(0.3), radius: 2)
+        .accessibilityHidden(true)
     }
 }
