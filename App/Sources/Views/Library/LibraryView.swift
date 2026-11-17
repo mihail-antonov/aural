@@ -74,13 +74,6 @@ enum BrowseDestination: Hashable {
     case artist(ArtistSummary)
 }
 
-/// Identity of a page in `BrowseStack`'s stack.
-private struct PageKey: Hashable, Identifiable {
-    let index: Int
-    let destination: BrowseDestination
-    var id: Self { self }
-}
-
 /// Items that open a page when clicked.
 protocol Browsable: Identifiable where ID: Hashable {
     var destination: BrowseDestination { get }
@@ -90,14 +83,10 @@ extension PlaylistSummary: Browsable { var destination: BrowseDestination { .pla
 extension AlbumSummary: Browsable { var destination: BrowseDestination { .album(self) } }
 extension ArtistSummary: Browsable { var destination: BrowseDestination { .artist(self) } }
 
-/// A page header and a stack of playlist / album / artist pages. Pages slide
-/// in from the right and back out (cross-fade with Reduce Motion). Going
-/// back is the header's chevron (or Esc), which returns to the player from
-/// the top level. `accessory` (the library tabs) stays visible above every page.
-///
-/// Aural draws its own stack: on macOS, `NavigationStack` switches pages
-/// without any animation, and while a page was leaving it showed the list
-/// underneath for a moment.
+/// A page header and a stack of playlist / album / artist pages, built on the
+/// system `NavigationStack`. Going back is the header's chevron (or Esc),
+/// which returns to the player from the top level. `accessory` (the library
+/// tabs) stays visible above every page.
 struct BrowseStack<Accessory: View, Trailing: View, Root: View>: View {
     let title: String
     @Binding var path: [BrowseDestination]
@@ -126,9 +115,6 @@ struct BrowseStack<Accessory: View, Trailing: View, Root: View>: View {
     }
     /// The row opened last: marked as selected when coming back to the list.
     @State private var openedID: AnyHashable?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static var push: Animation { .smooth(duration: 0.3) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -138,7 +124,7 @@ struct BrowseStack<Accessory: View, Trailing: View, Root: View>: View {
                     if path.isEmpty {
                         model.page = .player
                     } else {
-                        withAnimation(Self.push) { _ = path.removeLast() }
+                        _ = path.removeLast()
                     }
                 }
                 .labelStyle(.iconOnly)
@@ -154,34 +140,21 @@ struct BrowseStack<Accessory: View, Trailing: View, Root: View>: View {
 
             accessory()
 
-            ZStack {
-                // The list stays alive (keeping its scroll position and
-                // loaded pages) while a page covers it.
+            // The system stack keeps the list (scroll position, loaded
+            // pages) alive under a pushed page and animates push and pop.
+            // Aural's header above replaces its back button and title.
+            NavigationStack(path: $path) {
                 root()
-                    .opacity(path.isEmpty ? 1 : 0)
-                    .allowsHitTesting(path.isEmpty)
-                    .accessibilityHidden(!path.isEmpty)
-                // Identified by position *and* page: going back and opening
-                // another playlist must count as a new page (so it slides in),
-                // not as the leaving page with new content.
-                ForEach(path.indices.map { PageKey(index: $0, destination: path[$0]) }) { key in
-                    let (index, destination) = (key.index, key.destination)
-                    let isTop = index == path.count - 1
-                    page(for: destination)
-                        .opacity(isTop ? 1 : 0)
-                        .allowsHitTesting(isTop)
-                        .accessibilityHidden(!isTop)
-                        .transition(reduceMotion ? .opacity : .move(edge: .trailing))
-                        // A leaving page stays above the one it reveals.
-                        .zIndex(Double(index + 1))
-                }
+                    .navigationDestination(for: BrowseDestination.self) { destination in
+                        page(for: destination)
+                            .navigationBarBackButtonHidden(true)
+                    }
             }
-            .clipped()
             .scrollContentBackground(.hidden) // lists sit directly on the tinted background
             .transaction(value: resetID) { $0.animation = nil }
             .environment(\.openPage, OpenPageAction { destination, id in
                 openedID = id
-                withAnimation(Self.push) { path.append(destination) }
+                path.append(destination)
             })
             .environment(\.openedPageID, openedID)
         }
