@@ -7,7 +7,7 @@
 
 **The single most important goal: low memory usage.** The official Spotify desktop app is a Chromium (CEF) web app that uses close to 1 GB of RAM (~900 MB measured, 2026-11-16). **Aural + Soloist together** must stay well below that — target **under ~150 MB combined**, with Aural itself under ~60 MB. Soloist's own baseline (measured in Stage 0): ~19 MB logged in and idle, ~34–37 MB while playing. Every design decision should be judged against this.
 
-**Second goal: feel native to macOS 26.** Liquid Glass, system controls, Now Playing, media keys — it should look and behave like an app Apple could have shipped.
+**Second goal: feel native to macOS 27.** Liquid Glass, system controls, Now Playing, media keys — it should look and behave like an app Apple could have shipped.
 
 **Third goal: portfolio piece.** Code quality, README and documentation matter. See "Portfolio".
 
@@ -56,13 +56,13 @@ Player layout rule: the header and track info are placed from the window top, th
 Visual rules:
 - **Background:** a vertical gradient **tinted from the current cover's dominant color** (computed from the small, already downscaled cover image), dark enough for white text. It changes smoothly with the track. Opaque, as in the design: it is the content layer and keeps text readable on any wallpaper.
 - **Accent color:** warm peach, approximately `#F0B878` (tune to match the reference). Fixed, not derived from the cover. Used sparingly: progress ring and knob, time highlight, heart, active shuffle/repeat.
-- **Liquid Glass (Apple's design language, macOS 26):** glass belongs to the **controls layer**, not to content. Use Apple's own button styles, not custom ones: `.glass` for play/pause and the Play / Shuffle / Save buttons (Play's icon in the accent color), no glass in setup: `.borderedProminent` in the accent color for the main button, `.borderless` and `Link` for minor actions, plain filled text fields (`.glassProminent` has no hover or press feedback on macOS); `.glassEffect()`, grouping nearby controls in a `GlassEffectContainer`. Header buttons, the `…` menu, control rows and popovers are glass; the cover and background are not. Check Apple's current documentation for exact APIs.
+- **Liquid Glass (Apple's design language, macOS 26 and later):** glass belongs to the **controls layer**, not to content. Use Apple's own button styles, not custom ones: `.glass` for play/pause and the Play / Shuffle / Save buttons (Play's icon in the accent color), in setup: `.borderedProminent` in the accent color for the main button, `.borderless` and `Link` for minor actions, glass capsule text fields (`GlassField`, as in search; SwiftUI has no glass text field style) (`.glassProminent` has no hover or press feedback on macOS); `.glassEffect()`, grouping nearby controls in a `GlassEffectContainer`. Header buttons, the `…` menu, control rows and popovers are glass; the cover and background are not. Check Apple's current documentation for exact APIs.
 - **Fonts:** system fonts only (SF Pro); monospaced digits for times.
 - Respect **Reduce Transparency** and **Increase Contrast** (verify how glass behaves with them; the opaque background already works without transparency).
 - Prefer **system SwiftUI controls and SF Symbols** over custom-drawn ones, so they adopt Liquid Glass automatically. Exceptions agreed with the owner: the progress ring, and Spotify-style icon tooltips (`.tooltip(…)`, `Tooltip.swift`: dark label above the icon after ~0.45 s, drawn in a window-level layer). The toolbar's `…` menu, list rows and links keep the native `.help` tooltip.
 - Text and controls are designed for the dark tinted background in both system appearances.
 
-**Minimum macOS version: 26.** Apple Silicon only.
+**Minimum macOS version: 27** (raised from 26 on 2026-11-17 for the system `.tabs` picker style). Apple Silicon only.
 
 ## Tech stack
 
@@ -253,7 +253,7 @@ _Update this section at the end of each stage: what works, measured memory (Aura
 - [x] Stage 4 — Full UI with Liquid Glass (2026-11-13)
   - Player per `docs/design-2.png`, measured and scaled to a 320 × 576 pt window (`Metrics` in `PlayerView.swift`): cover-tinted gradient as the window's own background, 225 pt round cover with a 264 pt progress ring (thin track, accent fill, glowing knob; drag seeks live, click glides along the arc), time in the ring's open top, glass play/pause (custom style with smooth hover), icon buttons dimmed → white on hover, accent for active shuffle / repeat / heart.
   - Design changes agreed with the owner: no header row (only the `…` menu as a plain toolbar icon, top right: change Soloist API key, change Client ID, versions; "Go to album" dropped); the left slot of the controls row is **Search**; the list button opens the library in the same window (slide); Search is its own page. Bottom navigation (custom bar, system segmented control, `TabView`) was tried and dropped — macOS `TabView` can only show tabs in the top toolbar.
-  - Library: glass segmented tabs (Playlists / Liked / Albums, custom from `glassEffect`; the system segmented `Picker` keeps the classic look in window content), iOS Music-style rows (no separators, hover highlight, playing song marked with an animated waveform, track numbers on album pages), playing anything returns to the player. Settings steps open from the `…` menu with Cancel.
+  - Library: tabs (Playlists / Liked / Albums; first custom from `glassEffect`, since 2026-11-17 the system `Picker` with `.pickerStyle(.tabs)` (Liquid Glass, macOS 27; `.segmented` is solid in window content and does not fit the toolbar of the 320 pt window)), iOS Music-style rows (no separators, hover highlight, playing song marked with an animated waveform, track numbers on album pages), playing anything returns to the player. Settings steps open from the `…` menu with Cancel.
   - Previous: restart after 5 s (also in playlists / albums, decided by Aural); before that, inside playlists / albums Soloist's `skip_prev`; otherwise Aural's own history of played tracks, re-queueing what followed) — `SoloistHistory`, tested. Not confirmed live: whether Soloist's `play` clears the user queue (undocumented); Aural re-queues only if the queue came back empty.
   - Web API: 502–504 are retried once after 1 s (a 503 appeared while switching tabs quickly); cancelled loads are not errors; failed lists offer "Try again".
   - Accessibility: Reduce Motion (cross-fades, no bounce), Increase Contrast (full-white icons and secondary text), ring is an adjustable VoiceOver element with arrow-key seeking; glass follows the macOS 27 Liquid Glass setting by itself.

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// A text field on a Liquid Glass capsule, like the iOS search bar. Used for
-/// search (the setup steps use a plain field, `SetupField`).
+/// search and for the setup's API key and Client ID. SwiftUI has no glass
+/// text field style (macOS 27), so the glass comes from `glassEffect`.
 struct GlassField: View {
     let placeholder: String
     @Binding var text: String

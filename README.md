@@ -75,7 +75,7 @@ Intentionally **not** included: lyrics, podcasts, home feed, social features, of
 
 ## Install
 
-There is no ready-made download: you build your own copy, which takes one command. You need a Mac with Apple Silicon and **macOS 26**, **Spotify Premium**, and the Spotify app on your phone.
+There is no ready-made download: you build your own copy, which takes one command. You need a Mac with Apple Silicon and **macOS 27**, **Spotify Premium**, and the Spotify app on your phone.
 
 1. **Install [Xcode](https://apps.apple.com/app/xcode/id497799835)** from the App Store (free) and open it once, so it can finish setting up.
 2. **Build and install Aural.** In Terminal:

@@ -147,73 +147,35 @@ private struct PlayerHeader: View {
 
 /// Where the music plays: a speaker icon, in the accent color while Aural
 /// (Soloist) is Spotify's active device, dimmed white while another device
-/// plays. It opens a small popover with "Playing in Spotify" / "Playing in
-/// Aural"; picking Aural takes playback over.
+/// plays. Its menu shows "Playing in Spotify" / "Playing in Aural" with a
+/// checkmark; picking Aural takes playback over.
 /// (Soloist does not say which other device; only shown while something is loaded.)
-///
-/// A popover, not a `Menu`: while a menu is open, AppKit holds the main
-/// thread and the spinning cover and the progress ring stop.
 private struct DeviceMenu: View {
     @Environment(AppModel.self) private var model
     let playback: PlaybackState
-    @State private var isOpen = false
 
     var body: some View {
         if playback.track != nil {
             let isHere = playback.isActiveDevice
-            Button(isHere ? "Playing in Aural" : "Playing in Spotify", systemImage: "hifispeaker") {
-                isOpen.toggle()
+            Menu {
+                // Toggles get the system checkmark in a menu. "Playing in
+                // Spotify" only shows the state (Aural cannot pick another
+                // device); "Playing in Aural" takes playback over.
+                Toggle("Playing in Spotify", isOn: .constant(!isHere))
+                    .disabled(true)
+                Toggle("Playing in Aural", isOn: Binding(get: { isHere }, set: { if $0 { model.playHere() } }))
+                    .disabled(isHere)
+            } label: {
+                Label(isHere ? "Playing in Aural" : "Playing in Spotify", systemImage: "hifispeaker")
             }
+            // Drawn like the other header icons (see `MoreMenu`).
+            .menuStyle(.button)
             .buttonStyle(IconButtonStyle(size: 15, frame: 28))
             .labelStyle(.iconOnly)
+            .menuIndicator(.hidden)
             .iconActive(isHere)
             .tooltip(isHere ? "Playing in Aural" : "Playing in Spotify")
-            .popover(isPresented: $isOpen, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 2) {
-                    // "Playing in Spotify" only shows the state (Aural cannot
-                    // pick another device); "Playing in Aural" takes playback over.
-                    DeviceChoice(title: "Playing in Spotify", isSelected: !isHere) {}
-                        .disabled(true)
-                    DeviceChoice(title: "Playing in Aural", isSelected: isHere) {
-                        model.playHere()
-                        isOpen = false
-                    }
-                    .disabled(isHere)
-                }
-                .padding(8)
-            }
         }
-    }
-}
-
-/// One row of the device popover, with a checkmark like a menu item.
-private struct DeviceChoice: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-    /// False when the row is `.disabled`, set from outside.
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .opacity(isSelected ? 1 : 0)
-                    .accessibilityHidden(true)
-                Text(title)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .frame(minWidth: 160)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.borderless)
-        // Dimmed like a disabled menu item. (A fixed `.primary` would
-        // override the system's dimming and look clickable.)
-        .foregroundStyle(isEnabled ? .primary : .tertiary)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

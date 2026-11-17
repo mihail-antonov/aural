@@ -159,39 +159,6 @@ private struct LinkButton: View {
     }
 }
 
-/// A plain text field for the key and the Client ID: a faint filled
-/// rounded rectangle with a thin border that turns accent while typing.
-/// Not glass: glass is for controls that float over content, and a glass
-/// field on the setup background looked heavy and blurry.
-private struct SetupField: View {
-    let placeholder: String
-    @Binding var text: String
-    var isSecure = false
-    var onSubmit: () -> Void = {}
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        Group {
-            if isSecure {
-                SecureField(placeholder, text: $text)
-            } else {
-                TextField(placeholder, text: $text)
-            }
-        }
-        .textFieldStyle(.plain)
-        .focused($isFocused)
-        .onSubmit(onSubmit)
-        .padding(.horizontal, 12)
-        .frame(height: 32)
-        .background(.white.opacity(0.08), in: .rect(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isFocused ? Theme.accent.opacity(0.8) : .white.opacity(0.15), lineWidth: 1)
-        }
-        .animation(Theme.hoverAnimation, value: isFocused)
-    }
-}
-
 private struct ErrorText: View {
     let message: String
 
@@ -252,7 +219,7 @@ private struct KeyStepView: View {
             LinkButton(title: "Open Spotify for Developers", url: SoloistAPIKey.dashboardURL)
             .padding(.top, 4)
 
-            SetupField(placeholder: "Paste your API key", text: $setup.keyText, isSecure: true, onSubmit: submit)
+            GlassField(placeholder: "Paste your API key", text: $setup.keyText, isSecure: true, onSubmit: submit)
                 .disabled(setup.isStartingSoloist)
 
             if let error = setup.keyError {
@@ -360,7 +327,7 @@ private struct LibraryStepView: View {
             .font(.callout)
             .foregroundStyle(.white.opacity(0.85))
 
-            SetupField(placeholder: "Client ID", text: $setup.clientIDText, onSubmit: signIn)
+            GlassField(placeholder: "Client ID", text: $setup.clientIDText, onSubmit: signIn)
                 .disabled(setup.isSigningIn)
 
             if setup.isSigningIn {

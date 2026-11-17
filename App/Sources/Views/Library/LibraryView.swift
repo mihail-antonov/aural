@@ -277,44 +277,65 @@ private struct LibraryContent: View {
         BrowseStack(title: "Library", path: $path, model: model, resetID: tab) {
             // The tabs stay visible on playlist and album pages too; picking
             // a tab there shows that tab's list right away.
-            GlassSegmentedControl(selection: tabSelection, items: Tab.allCases.map { ($0, $0.rawValue) })
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-        } root: {
-            switch tab {
-            case .playlists:
-                PagedListView(list: playlists) { _, playlist in
-                    PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
-                }
-            case .liked:
-                PagedListView(list: liked) {
-                    CollectionHeader(
-                        imageURL: liked.items.first?.coverURL,
-                        title: "Liked Songs",
-                        subtitle: "Playlist",
-                        details: CollectionHeader.details(of: liked),
-                        canPlay: !liked.items.isEmpty,
-                        play: { model.play(tracks: liked.items, startingAt: 0, fromLikedSongs: true) },
-                        shuffle: { model.play(tracks: liked.items.shuffled(), startingAt: 0, fromLikedSongs: true) }
-                    )
-                } row: { index, track in
-                    Button { model.play(tracks: liked.items, startingAt: index, fromLikedSongs: true) } label: { TrackRow(track: track) }
-                        .buttonStyle(.plain)
-                }
-                // Reload after a like/unlike in the player (skips the first load).
-                .task(id: model.likedSongsVersion) {
-                    if liked.hasLoaded { await liked.reload() }
-                }
-            case .albums:
-                PagedListView(list: albums) { _, album in
-                    PageLink(value: album) { AlbumRow(album: album) }
-                }
+            // The system tabs picker, drawn by macOS in Liquid Glass:
+            // stretched to the page width (`.flexible` segments), extra large
+            // (taller) and capsule-shaped.
+            Picker("Library", selection: tabSelection) {
+                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
             }
+            .pickerStyle(.tabs)
+            .labelsHidden()
+            .buttonSizing(.flexible)
+            .controlSize(.extraLarge)
+            .buttonBorderShape(.capsule)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        } root: {
+            // The lists cross-fade when the tab changes. `BrowseStack` turns
+            // animations off for a tab change (so open pages vanish at once);
+            // this animation, set further down, applies to the lists only.
+            ZStack { tabList }
+                .animation(.easeInOut(duration: 0.2), value: tab)
         }
         // Reload after an album or playlist was saved / removed (skips the first load).
         .task(id: model.savedCollectionsVersion) {
             if playlists.hasLoaded { await playlists.reload() }
             if albums.hasLoaded { await albums.reload() }
+        }
+    }
+
+    /// The selected tab's list (each one keeps its loaded pages in `PagedList`).
+    @ViewBuilder
+    private var tabList: some View {
+        switch tab {
+        case .playlists:
+            PagedListView(list: playlists) { _, playlist in
+                PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
+            }
+        case .liked:
+            PagedListView(list: liked) {
+                CollectionHeader(
+                    imageURL: liked.items.first?.coverURL,
+                    title: "Liked Songs",
+                    subtitle: "Playlist",
+                    details: CollectionHeader.details(of: liked),
+                    canPlay: !liked.items.isEmpty,
+                    play: { model.play(tracks: liked.items, startingAt: 0, fromLikedSongs: true) },
+                    shuffle: { model.play(tracks: liked.items.shuffled(), startingAt: 0, fromLikedSongs: true) }
+                )
+            } row: { index, track in
+                Button { model.play(tracks: liked.items, startingAt: index, fromLikedSongs: true) } label: { TrackRow(track: track) }
+                    .buttonStyle(.plain)
+            }
+            // Reload after a like/unlike in the player (skips the first load).
+            .task(id: model.likedSongsVersion) {
+                if liked.hasLoaded { await liked.reload() }
+            }
+        case .albums:
+            PagedListView(list: albums) { _, album in
+                PageLink(value: album) { AlbumRow(album: album) }
+            }
         }
     }
 
