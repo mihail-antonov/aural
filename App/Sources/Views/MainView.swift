@@ -22,16 +22,13 @@ struct MainView: View {
                     .frame(maxHeight: .infinity, alignment: .top)
                     .transition(pageTransition(from: .leading))
             case .library:
-                LibraryPage()
-                    .padding(.top, Metrics.contentTop)
+                LibraryPage() // starts at the window top; see `BrowseStack`
                     .transition(pageTransition(from: .trailing))
             case .queue:
-                QueuePage()
-                    .padding(.top, Metrics.contentTop)
+                QueuePage() // starts at the window top; see `BrowseStack`
                     .transition(pageTransition(from: .trailing))
             case .search:
-                SearchPage()
-                    .padding(.top, Metrics.contentTop)
+                SearchPage() // starts at the window top; see `BrowseStack`
                     .transition(pageTransition(from: .trailing))
             }
         }

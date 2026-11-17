@@ -103,21 +103,14 @@ struct QueueRow: View {
     }
 }
 
-/// iOS-style section title in a list: large, bold, left-aligned. A plain
-/// list row rather than a `Section` header, so it has the same side insets
-/// as the rows, no separator line under it, and room around it.
+/// Title of a native list `Section` (header: { ListSectionHeader(...) }).
+/// macOS draws it (small, grey, pinned on a blurred bar while its rows
+/// scroll); only the text is indented like the rows (`libraryRow`'s 16 pt).
 struct ListSectionHeader: View {
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-            .libraryRow()
-            .accessibilityAddTraits(.isHeader)
+        Text(title).padding(.horizontal, 16)
     }
 }
 
@@ -195,11 +188,19 @@ extension EnvironmentValues {
 
 extension View {
     /// List row chrome for the library: no row background (the tinted window
-    /// background shows through), iOS-like insets, no separators.
-    func libraryRow() -> some View {
-        listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
+    /// background shows through), iOS-like insets, no separators. `extraTop`
+    /// / `extraBottom` add room, e.g. at the start and end of a section.
+    func libraryRow(extraTop: CGFloat = 0, extraBottom: CGFloat = 0) -> some View {
+        listRowInsets(EdgeInsets(top: 7 + extraTop, leading: 16, bottom: 7 + extraBottom, trailing: 16))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+    }
+
+    /// A row inside a `Section`: the first and last rows get extra room, so
+    /// the rows keep away from the section titles around them.
+    func librarySectionRow(isFirst: Bool, isLast: Bool) -> some View {
+        let spacing: CGFloat = 8
+        return libraryRow(extraTop: isFirst ? spacing : 0, extraBottom: isLast ? spacing : 0)
     }
 
     /// A list on the tinted background with room before the first and after

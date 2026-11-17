@@ -13,13 +13,23 @@ struct QueueView: View {
         let queue = model.queue
         List {
             if let track = model.playback.track {
-                ListSectionHeader(title: "Now Playing")
-                QueueRow(track: track, isCurrent: true).libraryRow()
+                SwiftUI.Section {
+                    QueueRow(track: track, isCurrent: true)
+                        .librarySectionRow(isFirst: true, isLast: true)
+                } header: {
+                    ListSectionHeader(title: "Now Playing")
+                }
             }
             ForEach(Self.sections(queue.upNext)) { section in
-                ListSectionHeader(title: section.title)
-                ForEach(section.entries) { entry in
-                    row(entry, canJump: queue.canJump).libraryRow()
+                SwiftUI.Section {
+                    ForEach(section.entries) { entry in
+                        row(entry, canJump: queue.canJump).librarySectionRow(
+                            isFirst: entry.id == section.entries.first?.id,
+                            isLast: entry.id == section.entries.last?.id
+                        )
+                    }
+                } header: {
+                    ListSectionHeader(title: section.title)
                 }
             }
             if queue.upNext.isEmpty {

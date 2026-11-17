@@ -117,47 +117,57 @@ struct BrowseStack<Accessory: View, Trailing: View, Root: View>: View {
     @State private var openedID: AnyHashable?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 2) {
-                // Back to the previous page, or to the player from the top level.
-                Button(path.isEmpty ? "Back to Player" : "Back", systemImage: "chevron.left") {
-                    if path.isEmpty {
-                        model.page = .player
-                    } else {
-                        _ = path.removeLast()
-                    }
+        // The system stack keeps the list (scroll position, loaded pages)
+        // alive under a pushed page and animates push and pop. Aural's
+        // header replaces its back button and title.
+        NavigationStack(path: $path) {
+            root()
+                .navigationDestination(for: BrowseDestination.self) { destination in
+                    page(for: destination)
+                        .navigationBarBackButtonHidden(true)
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(IconButtonStyle(size: 15, frame: 28))
-                .keyboardShortcut(.cancelAction) // Esc goes back
-                .tooltip(path.isEmpty ? "Back to Player" : "Back")
-                Text(title).font(.headline)
-                Spacer()
-                trailing()
-            }
-            .frame(height: 28)
-            .padding(.horizontal, 14)
-
-            accessory()
-
-            // The system stack keeps the list (scroll position, loaded
-            // pages) alive under a pushed page and animates push and pop.
-            // Aural's header above replaces its back button and title.
-            NavigationStack(path: $path) {
-                root()
-                    .navigationDestination(for: BrowseDestination.self) { destination in
-                        page(for: destination)
-                            .navigationBarBackButtonHidden(true)
-                    }
-            }
-            .scrollContentBackground(.hidden) // lists sit directly on the tinted background
-            .transaction(value: resetID) { $0.animation = nil }
-            .environment(\.openPage, OpenPageAction { destination, id in
-                openedID = id
-                path.append(destination)
-            })
-            .environment(\.openedPageID, openedID)
         }
+        .scrollContentBackground(.hidden) // lists sit directly on the tinted background
+        .transaction(value: resetID) { $0.animation = nil }
+        .environment(\.openPage, OpenPageAction { destination, id in
+            openedID = id
+            path.append(destination)
+        })
+        .environment(\.openedPageID, openedID)
+        // The header (and the library tabs) as a system bar: lists scroll
+        // under it and macOS blurs them there (the scroll edge effect),
+        // like under the section titles. The bar reaches up to the window
+        // top, so the blur also covers the toolbar area (window buttons,
+        // `…` menu); the header itself starts below it.
+        .safeAreaBar(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                accessory()
+            }
+            .padding(.top, Metrics.contentTop)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 2) {
+            // Back to the previous page, or to the player from the top level.
+            Button(path.isEmpty ? "Back to Player" : "Back", systemImage: "chevron.left") {
+                if path.isEmpty {
+                    model.page = .player
+                } else {
+                    _ = path.removeLast()
+                }
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(IconButtonStyle(size: 15, frame: 28))
+            .keyboardShortcut(.cancelAction) // Esc goes back
+            .tooltip(path.isEmpty ? "Back to Player" : "Back")
+            Text(title).font(.headline)
+            Spacer()
+            trailing()
+        }
+        .frame(height: 28)
+        .padding(.horizontal, 14)
     }
 
     @ViewBuilder
@@ -180,8 +190,11 @@ extension BrowseStack where Trailing == EmptyView {
 }
 
 extension BrowseStack where Accessory == EmptyView, Trailing == EmptyView {
-    init(title: String, path: Binding<[BrowseDestination]>, model: AppModel, @ViewBuilder root: @escaping () -> Root) {
-        self.init(title: title, path: path, model: model, accessory: { EmptyView() }, trailing: { EmptyView() }, root: root)
+    init(
+        title: String, path: Binding<[BrowseDestination]>, model: AppModel, resetID: AnyHashable? = nil,
+        @ViewBuilder root: @escaping () -> Root
+    ) {
+        self.init(title: title, path: path, model: model, resetID: resetID, accessory: { EmptyView() }, trailing: { EmptyView() }, root: root)
     }
 }
 
@@ -248,28 +261,24 @@ private struct LibraryContent: View {
 
     var body: some View {
         BrowseStack(title: "Library", path: $path, model: model, resetID: tab) {
-            // The tabs stay visible on playlist and album pages too; picking
-            // a tab there shows that tab's list right away.
-            // The system tabs picker, drawn by macOS in Liquid Glass:
-            // stretched to the page width (`.flexible` segments), extra large
-            // (taller) and capsule-shaped.
-            Picker("Library", selection: tabSelection) {
-                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.tabs)
-            .labelsHidden()
-            .buttonSizing(.flexible)
-            .controlSize(.extraLarge)
-            .buttonBorderShape(.capsule)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        } root: {
             // The lists cross-fade when the tab changes. `BrowseStack` turns
             // animations off for a tab change (so open pages vanish at once);
             // this animation, set further down, applies to the lists only.
-            ZStack { tabList }
-                .animation(.easeInOut(duration: 0.2), value: tab)
+            // Built like the Search page: a plain list of rows, with the
+            // tabs as its bar instead of the search field.
+            ZStack {
+                List { tabRows }
+                    .libraryList()
+                    // A new list per tab: it starts at the top and fades in.
+                    .id(tab)
+                    .task(id: tab) { await loadSelectedTab() }
+            }
+            .animation(.easeInOut(duration: 0.2), value: tab)
+            .safeAreaBar(edge: .top, spacing: 0) { tabs }
+            // Reload after a like/unlike in the player (skips the first load).
+            .task(id: model.likedSongsVersion) {
+                if liked.hasLoaded { await liked.reload() }
+            }
         }
         // Reload after an album or playlist was saved / removed (skips the first load).
         .task(id: model.savedCollectionsVersion) {
@@ -278,16 +287,39 @@ private struct LibraryContent: View {
         }
     }
 
-    /// The selected tab's list (each one keeps its loaded pages in `PagedList`).
+    /// The system tabs picker, drawn by macOS in Liquid Glass: stretched to
+    /// the page width (`.flexible` segments), extra large (taller) and
+    /// capsule-shaped.
+    private var tabs: some View {
+        Picker("Library", selection: tabSelection) {
+            ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.tabs)
+        .labelsHidden()
+        .buttonSizing(.flexible)
+        .controlSize(.extraLarge)
+        .buttonBorderShape(.capsule)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    /// The selected tab's rows (each tab keeps its loaded pages in `PagedList`).
     @ViewBuilder
-    private var tabList: some View {
+    private var tabRows: some View {
         switch tab {
         case .playlists:
-            PagedListView(list: playlists) { _, playlist in
-                PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
+            Section {
+                PagedRows(list: playlists, inSection: true) { _, playlist in
+                    PageLink(value: playlist) { PlaylistRow(playlist: playlist) }
+                }
+            } header: {
+                ListSectionHeader(title: Self.countTitle(playlists.total, one: "Playlist", many: "Playlists"))
             }
         case .liked:
-            PagedListView(list: liked) {
+            // The header (cover, Play, Shuffle) is inside the section, so
+            // the title sits above its cover too (see `countTitle`).
+            Section {
                 CollectionHeader(
                     imageURL: liked.items.first?.coverURL,
                     title: "Liked Songs",
@@ -297,18 +329,43 @@ private struct LibraryContent: View {
                     play: { model.play(tracks: liked.items, startingAt: 0, fromLikedSongs: true) },
                     shuffle: { model.play(tracks: liked.items.shuffled(), startingAt: 0, fromLikedSongs: true) }
                 )
-            } row: { index, track in
-                Button { model.play(tracks: liked.items, startingAt: index, fromLikedSongs: true) } label: { TrackRow(track: track) }
-                    .buttonStyle(.plain)
-            }
-            // Reload after a like/unlike in the player (skips the first load).
-            .task(id: model.likedSongsVersion) {
-                if liked.hasLoaded { await liked.reload() }
+                .librarySectionRow(isFirst: true, isLast: false)
+                PagedRows(list: liked) { index, track in
+                    Button { model.play(tracks: liked.items, startingAt: index, fromLikedSongs: true) } label: { TrackRow(track: track) }
+                        .buttonStyle(.plain)
+                }
+            } header: {
+                ListSectionHeader(title: Self.countTitle(liked.total, one: "Song", many: "Songs"))
             }
         case .albums:
-            PagedListView(list: albums) { _, album in
-                PageLink(value: album) { AlbumRow(album: album) }
+            Section {
+                PagedRows(list: albums, inSection: true) { _, album in
+                    PageLink(value: album) { AlbumRow(album: album) }
+                }
+            } header: {
+                ListSectionHeader(title: Self.countTitle(albums.total, one: "Album", many: "Albums"))
             }
+        }
+    }
+
+    /// Section title with the number of items on Spotify, e.g. "48 Playlists"
+    /// (just "Playlists" until the first page has loaded).
+    ///
+    /// The section title also keeps the bar's blur neutral: pinned right
+    /// under the tabs, it is what the bar's scroll edge effect sees, as on
+    /// the Search and Queue pages. Without it the first cover sat directly
+    /// under the bar and its color bled into the blur.
+    private static func countTitle(_ total: Int?, one: String, many: String) -> String {
+        guard let total else { return many }
+        return "\(total) \(total == 1 ? one : many)"
+    }
+
+    /// Loads the first page of the selected tab, once.
+    private func loadSelectedTab() async {
+        switch tab {
+        case .playlists: await playlists.loadIfNeeded()
+        case .liked: await liked.loadIfNeeded()
+        case .albums: await albums.loadIfNeeded()
         }
     }
 
@@ -334,30 +391,43 @@ struct PagedListView<Item: Sendable & Identifiable, Header: View, Row: View>: Vi
         List {
             header()
                 .libraryRow()
-            ForEach(Array(list.items.enumerated()), id: \.element.id) { index, item in
-                row(index, item)
-                    .libraryRow()
-                    .onAppear { list.rowAppeared(item) }
-            }
-            Group {
-                if list.isLoading {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity)
-                } else if let error = list.error {
-                    VStack(spacing: 6) {
-                        Text(error.localizedDescription).font(.caption).foregroundStyle(.red)
-                        Button("Try Again") { Task { await list.loadMore() } }
-                            .controlSize(.small)
-                    }
-                    .frame(maxWidth: .infinity)
-                } else if list.hasLoaded && list.items.isEmpty {
-                    Text("Nothing here yet.").foregroundStyle(.secondary)
-                }
-            }
-            .libraryRow()
-            .listRowSeparator(.hidden)
+            PagedRows(list: list, row: row)
         }
         .libraryList()
         .task { await list.loadIfNeeded() }
+    }
+}
+
+/// The rows of a `PagedList` inside a `List`: the items (the next page loads
+/// as the last rows appear), then a loading, error or empty row.
+struct PagedRows<Item: Sendable & Identifiable, Row: View>: View {
+    let list: PagedList<Item>
+    /// Inside a `Section`: the first row gets extra room under the title.
+    var inSection = false
+    @ViewBuilder let row: (Int, Item) -> Row
+
+    var body: some View {
+        ForEach(Array(list.items.enumerated()), id: \.element.id) { index, item in
+            row(index, item)
+                .librarySectionRow(isFirst: inSection && index == 0, isLast: false)
+                .onAppear { list.rowAppeared(item) }
+        }
+        Group {
+            if list.isLoading {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+            } else if let error = list.error {
+                VStack(spacing: 6) {
+                    Text(error.localizedDescription).font(.caption).foregroundStyle(.red)
+                    Button("Try Again") { Task { await list.loadMore() } }
+                        .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity)
+            } else if list.hasLoaded && list.items.isEmpty {
+                Text("Nothing here yet.").foregroundStyle(.secondary)
+            }
+        }
+        .libraryRow()
+        .listRowSeparator(.hidden)
     }
 }
 
