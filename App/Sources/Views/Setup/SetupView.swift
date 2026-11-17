@@ -114,9 +114,9 @@ private struct PrimaryButton: View {
             // Dark text: white is hard to read on the light peach.
             .foregroundStyle(.black.opacity(0.85))
             .frame(maxWidth: .infinity)
-            .frame(height: 30)
         }
         .buttonStyle(.borderedProminent)
+        .controlSize(.extraLarge) // the system's tallest button size
         .buttonBorderShape(.capsule)
         .tint(Theme.accent)
     }
@@ -165,7 +165,7 @@ private struct ErrorText: View {
     var body: some View {
         Text(message)
             .font(.callout)
-            .foregroundStyle(Color(red: 1, green: 0.55, blue: 0.5))
+            .foregroundStyle(.red) // the system red adapts to Increase Contrast
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -219,7 +219,7 @@ private struct KeyStepView: View {
             LinkButton(title: "Open Spotify for Developers", url: SoloistAPIKey.dashboardURL)
             .padding(.top, 4)
 
-            GlassField(placeholder: "Paste your API key", text: $setup.keyText, isSecure: true, onSubmit: submit)
+            GlassField(placeholder: "Paste your API key", text: $setup.keyText, systemImage: "key", isSecure: true, onSubmit: submit)
                 .disabled(setup.isStartingSoloist)
 
             if let error = setup.keyError {
@@ -327,7 +327,7 @@ private struct LibraryStepView: View {
             .font(.callout)
             .foregroundStyle(.white.opacity(0.85))
 
-            GlassField(placeholder: "Client ID", text: $setup.clientIDText, onSubmit: signIn)
+            GlassField(placeholder: "Client ID", text: $setup.clientIDText, systemImage: "person.badge.key", onSubmit: signIn)
                 .disabled(setup.isSigningIn)
 
             if setup.isSigningIn {
