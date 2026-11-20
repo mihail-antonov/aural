@@ -31,6 +31,12 @@ Aural is a small native window that does the core things — play, pause, skip, 
 
 Measured with `footprint` on an Apple Silicon MacBook Pro, macOS 26, Release build of Aural.
 
+### CPU
+
+While a song plays, Aural uses about **0.2 % CPU** with its window open, the same as when paused. The spinning cover, the progress ring and long song titles that scroll are Core Animation animations: macOS moves them in its own render server, so Aural does no work per frame. (Driven by SwiftUI, the same animations cost about 10 %.)
+
+Measured with `top` on an Apple Silicon MacBook Pro, macOS 27, Release build of Aural.
+
 ## How it works
 
 ```
@@ -58,7 +64,7 @@ Spotify Soloist, released in August 2026, is the official answer for headless an
 
 ## Features
 
-- Play / pause / next / previous / seek (drag the ring around the cover) / volume
+- Play / pause / next / previous / seek (drag the ring around the cover, which turns like a record) / volume
 - Shuffle and repeat
 - Autoplay of similar songs when an album, playlist or song ends
 - Your playlists, Liked Songs and saved albums; save albums and playlists to your library
