@@ -57,13 +57,22 @@ final class SpinningImageView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    /// Centres the turning image in the view, every time AppKit lays it out.
+    /// The root layer is set to the view's bounds too: in a layer-hosting view
+    /// that is up to us, and an outdated root layer put the image off-centre.
+    override func layout() {
+        super.layout()
         withoutImplicitAnimations {
+            layer?.frame = bounds
             // `bounds` and `position`, not `frame`: `frame` is not defined
             // for a rotated layer.
-            imageLayer.bounds = CGRect(origin: .zero, size: newSize)
-            imageLayer.position = CGPoint(x: newSize.width / 2, y: newSize.height / 2)
+            imageLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+            imageLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
             // Half the side makes the square a circle.
-            imageLayer.cornerRadius = min(newSize.width, newSize.height) / 2
+            imageLayer.cornerRadius = min(bounds.width, bounds.height) / 2
         }
     }
 

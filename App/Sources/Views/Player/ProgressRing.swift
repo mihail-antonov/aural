@@ -1,4 +1,5 @@
 import SwiftUI
+import AuralCore
 
 /// Circular progress around the cover, open at the top like the design. It
 /// fills from right to left: from 1 o'clock clockwise, along the bottom, up
@@ -9,11 +10,17 @@ import SwiftUI
 /// clicked point. When the track changes, the knob glides back to the start
 /// instead of jumping. VoiceOver and the arrow keys can adjust it too.
 ///
-/// There is no system control for this, so it is drawn with shapes.
+/// There is no system control for this, so it is drawn with shapes, in two layers:
+/// - While the song simply plays, `LiveRingView` draws the ring and Core
+///   Animation moves the fill and the knob, so Aural does no work per frame
+///   (redrawing it with SwiftUI cost about 6 % CPU, measured).
+/// - While the user drags, or the knob glides to a new place, SwiftUI draws
+///   the fill and the knob on top (`RingDrawing`) and the live ones are hidden.
 struct ProgressRing: View {
-    /// 0…1, from the playback state.
-    let progress: Double
-    /// The track `progress` belongs to; a change glides the knob back to 0.
+    /// The reported position; the ring works out the current one from it.
+    let position: PlaybackPosition
+    let isPlaying: Bool
+    /// The track `position` belongs to; a change glides the knob back to 0.
     let trackID: String?
     let durationMs: Int
     let canSeek: Bool
@@ -36,46 +43,50 @@ struct ProgressRing: View {
     /// The seek target is kept at least until its glide has finished:
     /// switching to the reported position mid-glide would make it jump.
     @State private var holdUntil = Date.distantPast
+    /// A report matched the seek target while the glide was still running.
+    @State private var seekCaughtUp = false
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
-    /// How often the ring is redrawn while playing. On a 3-minute song the
-    /// knob moves about half a point per redraw. (30 per second cost a lot
-    /// of CPU for a ring that barely moves; 4 per second looked choppy.)
-    static let redrawInterval = 1.0 / 8
-
-    /// When the ring's `TimelineView` redraws: every `redrawInterval` while
-    /// playing, never while paused.
-    ///
-    /// A timer-like schedule, not `.animation(minimumInterval:)`: that one
-    /// still wakes SwiftUI on every screen frame (60–120 times a second) to
-    /// check whether the interval has passed, which costs CPU even when
-    /// nothing is redrawn.
-    struct Schedule: TimelineSchedule {
-        let isPaused: Bool
-
-        func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
-            var next: Date? = startDate
-            return AnyIterator {
-                // While paused, only the start date: one redraw, then none.
-                defer { next = isPaused ? nil : next.map { $0 + ProgressRing.redrawInterval } }
-                return next
-            }
-        }
+    /// 0…1, worked out from the reported position at `date`.
+    private func liveProgress(at date: Date = .now) -> Double {
+        Self.progress(of: position, durationMs: durationMs, at: date)
     }
 
-    private var shownProgress: Double { min(max(dragProgress ?? seekTarget ?? progress, 0), 1) }
+    private static func progress(of position: PlaybackPosition, durationMs: Int, at date: Date = .now) -> Double {
+        guard durationMs > 0 else { return 0 }
+        return Double(position.current(at: date, durationMs: durationMs)) / Double(durationMs)
+    }
+
+    /// SwiftUI draws the fill and the knob (dragging, gliding, holding a
+    /// seek target); otherwise the live Core Animation layers do.
+    private var isManual: Bool { dragProgress != nil || seekTarget != nil }
+
+    private var shownProgress: Double { min(max(dragProgress ?? seekTarget ?? liveProgress(), 0), 1) }
+
+    private var isEmphasized: Bool { canSeek && (isHovered || isFocused || dragProgress != nil) }
 
     var body: some View {
         GeometryReader { geometry in
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-            let radius = RingDrawing.radius(in: geometry.size)
+            let radius = RingGeometry.radius(in: geometry.size)
 
-            RingDrawing(
-                progress: shownProgress,
-                isEmphasized: canSeek && (isHovered || isFocused || dragProgress != nil),
-                canSeek: canSeek
-            )
+            ZStack {
+                LiveRingView(
+                    position: position,
+                    isPlaying: isPlaying,
+                    durationMs: durationMs,
+                    showsProgress: !isManual,
+                    isEmphasized: isEmphasized,
+                    canSeek: canSeek
+                )
+                RingDrawing(
+                    progress: shownProgress,
+                    isEmphasized: isEmphasized,
+                    canSeek: canSeek
+                )
+                .opacity(isManual ? 1 : 0)
+            }
             .contentShape(.rect)
             .gesture(seekGesture(center: center, radius: radius), isEnabled: canSeek)
         }
@@ -86,14 +97,16 @@ struct ProgressRing: View {
         .focusEffectDisabled()
         .onKeyPress(.leftArrow) { step(-Self.keyboardStepMs) }
         .onKeyPress(.rightArrow) { step(Self.keyboardStepMs) }
-        .onChange(of: Reported(trackID: trackID, progress: progress)) { old, new in
+        .onChange(of: Reported(trackID: trackID, position: position, durationMs: durationMs)) { old, new in
             if old.trackID != new.trackID {
                 // Not on launch (no previous track): the restored position is real.
                 guard old.trackID != nil, new.trackID != nil else { return }
-                trackChanged(from: seekTarget ?? old.progress)
-            } else if let target = seekTarget, abs(new.progress - target) < 0.02, Date.now >= holdUntil {
-                // Soloist caught up with the seek: follow the real position again.
-                clearSeekTarget()
+                let oldProgress = Self.progress(of: old.position, durationMs: old.durationMs)
+                trackChanged(from: dragProgress ?? seekTarget ?? oldProgress)
+            } else if caughtUpWithSeek {
+                // Soloist caught up with the seek: follow the real position
+                // again, but not in the middle of the glide (it would jump).
+                if Date.now >= holdUntil { clearSeekTarget() } else { seekCaughtUp = true }
             }
         }
         .accessibilityElement()
@@ -113,12 +126,12 @@ struct ProgressRing: View {
                 guard startsOnRing(value, center: center, radius: radius) else { return }
                 let moved = hypot(value.translation.width, value.translation.height) > Self.dragThreshold
                 if moved || dragProgress != nil {
-                    dragProgress = RingDrawing.fraction(at: value.location, center: center)
+                    dragProgress = RingGeometry.fraction(at: value.location, center: center)
                 }
             }
             .onEnded { value in
                 guard startsOnRing(value, center: center, radius: radius) else { return }
-                let fraction = RingDrawing.fraction(at: value.location, center: center)
+                let fraction = RingGeometry.fraction(at: value.location, center: center)
                 if dragProgress != nil {
                     // The knob is already there: hand over without animating.
                     var transaction = Transaction()
@@ -128,7 +141,7 @@ struct ProgressRing: View {
                         seek(to: fraction)
                     }
                 } else {
-                    withAnimation(Self.glide) { seek(to: fraction) }
+                    seek(to: fraction, gliding: true)
                 }
             }
     }
@@ -137,18 +150,49 @@ struct ProgressRing: View {
         hypot(value.startLocation.x - center.x, value.startLocation.y - center.y) > radius - 24
     }
 
-    private func seek(to fraction: Double) {
-        hold(at: fraction)
+    private func seek(to fraction: Double, gliding: Bool = false) {
         onSeek(Int(fraction * Double(durationMs)))
+        if gliding { glide(to: fraction) } else { hold(at: fraction) }
+    }
+
+    /// Moves the knob smoothly along the arc to `fraction`.
+    private func glide(to fraction: Double, from start: Double? = nil) {
+        if isManual, start == nil {
+            // SwiftUI already draws the knob: glide from where it is.
+            withAnimation(Self.glide) { hold(at: fraction) }
+            return
+        }
+        // Hand over from the live layers: SwiftUI's knob appears where the
+        // live one was, without animating, and glides from there a frame later.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { hold(at: start ?? liveProgress()) }
+        Task {
+            try? await Task.sleep(for: .milliseconds(16))
+            withAnimation(Self.glide) { hold(at: fraction) }
+        }
+    }
+
+    /// Whether the reported position has reached the seek target.
+    private var caughtUpWithSeek: Bool {
+        guard let seekTarget else { return false }
+        return abs(liveProgress() - seekTarget) < 0.02
     }
 
     /// Shows `fraction` until the reported position matches it (at most `seekHold`).
     private func hold(at fraction: Double) {
         seekTarget = fraction
+        seekCaughtUp = false
         holdUntil = .now + Self.glideDuration
         seekTargetTask?.cancel()
         seekTargetTask = Task {
-            try? await Task.sleep(for: Self.seekHold)
+            // Once the glide is over, follow the real position if a report
+            // already matched during the glide (no new one may come).
+            // (`seekCaughtUp` is state, so this reads its current value.)
+            try? await Task.sleep(for: .seconds(Self.glideDuration))
+            guard !Task.isCancelled else { return }
+            if seekCaughtUp { seekTarget = nil; return }
+            try? await Task.sleep(for: Self.seekHold - .seconds(Self.glideDuration))
             if !Task.isCancelled { seekTarget = nil }
         }
     }
@@ -159,14 +203,7 @@ struct ProgressRing: View {
     /// position once Soloist reports it.
     private func trackChanged(from previous: Double) {
         guard dragProgress == nil else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { hold(at: previous) }
-        Task {
-            // The next frame, so the glide starts from the old position.
-            try? await Task.sleep(for: .milliseconds(16))
-            withAnimation(Self.glide) { hold(at: 0) }
-        }
+        glide(to: 0, from: previous)
     }
 
     private func clearSeekTarget() {
@@ -179,7 +216,7 @@ struct ProgressRing: View {
         guard canSeek, durationMs > 0 else { return .ignored }
         let current = shownProgress * Double(durationMs)
         let target = min(max(current + Double(deltaMs), 0), Double(durationMs))
-        withAnimation(Self.glide) { seek(to: target / Double(durationMs)) }
+        seek(to: target / Double(durationMs), gliding: true)
         return .handled
     }
 }
@@ -187,10 +224,12 @@ struct ProgressRing: View {
 /// What `onChange` compares: a new track and a new position can arrive together.
 private struct Reported: Equatable {
     let trackID: String?
-    let progress: Double
+    let position: PlaybackPosition
+    let durationMs: Int
 }
 
-/// Draws the track, the fill and the knob for one progress value.
+/// Draws the fill and the knob for one progress value, above the live
+/// ring while dragging or gliding.
 ///
 /// Conforming to `Animatable` lets SwiftUI animate `progress` itself: during a
 /// glide every frame redraws the fill and moves the knob *along the arc*
@@ -207,60 +246,63 @@ private struct RingDrawing: View, Animatable {
         set { progress = newValue }
     }
 
-    /// Gap at the top between 11 and 1 o'clock; the ring covers the other 300°.
-    static let sweep = 300.0
-    static let lineWidth = 4.0
-    static let knobSize = 14.0
-
     var body: some View {
         GeometryReader { geometry in
-            let radius = Self.radius(in: geometry.size)
+            let radius = RingGeometry.radius(in: geometry.size)
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
 
             ZStack {
-                // The arcs are inset by half a knob so the knob never sticks out of the frame.
-                Group {
-                    Self.arc(to: 1)
-                        .stroke(.white.opacity(0.18), style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round))
-                    Self.arc(to: progress)
-                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round))
-                }
-                .padding(Self.knobSize / 2)
+                // Inset by half a knob so the knob never sticks out of the frame.
+                Self.arc(to: progress)
+                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: RingGeometry.lineWidth, lineCap: .round))
+                    .padding(RingGeometry.knobSize / 2)
 
-                // The knob as in the design: an accent dot with a soft glow,
-                // which gets stronger on hover, focus and drag.
                 Circle()
                     .fill(Theme.accent)
-                    .frame(width: Self.knobSize, height: Self.knobSize)
-                    .shadow(color: Theme.accent.opacity(isEmphasized ? 1 : 0.8), radius: isEmphasized ? 9 : 4)
+                    .frame(width: RingGeometry.knobSize, height: RingGeometry.knobSize)
+                    .shadow(
+                        color: Theme.accent.opacity(RingGeometry.glowOpacity(isEmphasized)),
+                        radius: RingGeometry.glowRadius(isEmphasized)
+                    )
                     .animation(.smooth(duration: 0.2), value: isEmphasized)
-                    .position(Self.point(at: progress, radius: radius, center: center))
+                    .position(RingGeometry.point(at: progress, radius: radius, center: center))
                     .opacity(canSeek ? 1 : 0.5)
             }
         }
-    }
-
-    // MARK: - Geometry
-    //
-    // Angles are in degrees, measured clockwise from 3 o'clock (SwiftUI's
-    // screen coordinates). The ring runs clockwise from 1 o'clock (-60°),
-    // so progress adds to the angle.
-
-    private static let startAngle = -60.0
-
-    static func radius(in size: CGSize) -> Double {
-        (min(size.width, size.height) - knobSize) / 2
     }
 
     private static func arc(to fraction: Double) -> some Shape {
         // `trim` draws clockwise from 3 o'clock; rotating it to the start
         // angle makes it draw clockwise from 1 o'clock.
         Circle()
-            .trim(from: 0, to: fraction * sweep / 360)
-            .rotation(.degrees(startAngle))
+            .trim(from: 0, to: fraction * RingGeometry.sweep / 360)
+            .rotation(.degrees(RingGeometry.startAngle))
+    }
+}
+
+/// The ring's shape and look, shared by the SwiftUI and the Core Animation drawing.
+///
+/// Angles are in degrees, measured clockwise from 3 o'clock (screen
+/// coordinates, y pointing down). The ring runs clockwise from 1 o'clock
+/// (-60°), so progress adds to the angle.
+enum RingGeometry {
+    /// Gap at the top between 11 and 1 o'clock; the ring covers the other 300°.
+    static let sweep = 300.0
+    static let startAngle = -60.0
+    static let lineWidth = 4.0
+    static let knobSize = 14.0
+    static let trackOpacity = 0.18
+
+    /// The knob's soft glow, stronger on hover, focus and drag.
+    static func glowRadius(_ isEmphasized: Bool) -> Double { isEmphasized ? 9 : 4 }
+    static func glowOpacity(_ isEmphasized: Bool) -> Double { isEmphasized ? 1 : 0.8 }
+
+    /// The arcs are inset by half a knob so the knob never sticks out of the frame.
+    static func radius(in size: CGSize) -> Double {
+        (min(size.width, size.height) - knobSize) / 2
     }
 
-    private static func point(at fraction: Double, radius: Double, center: CGPoint) -> CGPoint {
+    static func point(at fraction: Double, radius: Double, center: CGPoint) -> CGPoint {
         let radians = (startAngle + fraction * sweep) * .pi / 180
         return CGPoint(x: center.x + radius * cos(radians), y: center.y + radius * sin(radians))
     }
@@ -278,7 +320,10 @@ private struct RingDrawing: View, Animatable {
 }
 
 #Preview {
-    ProgressRing(progress: 0.35, trackID: "preview", durationMs: 215_000, canSeek: true) { _ in }
+    ProgressRing(
+        position: PlaybackPosition(positionMs: 75_000, timestamp: .now, speed: 1),
+        isPlaying: true, trackID: "preview", durationMs: 215_000, canSeek: true
+    ) { _ in }
         .frame(width: 240, height: 240)
         .padding()
         .background(.black)

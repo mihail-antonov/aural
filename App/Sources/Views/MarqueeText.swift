@@ -6,24 +6,30 @@ import SwiftUI
 /// (the two copies make the restart invisible). Text that fits is just
 /// centered. With Reduce Motion it does not move and ends with "…" instead.
 ///
-/// SwiftUI has no marquee, so this moves two copies of the text with an
-/// offset animation. Only overflowing text animates, and the animation is a
-/// plain linear offset, which the system renders cheaply.
+/// SwiftUI has no marquee. Moving the text with a SwiftUI animation redrew
+/// the window on every frame (10–14 % CPU while scrolling, measured), so the
+/// text is drawn once into an image (`ImageRenderer`) and Core Animation
+/// slides that image (`ScrollingImageView`): Aural does no work per frame.
 struct MarqueeText: View {
     let text: String
     let font: Font
+    /// Given explicitly: the scrolling copy is an image, which does not pick
+    /// up the surrounding foreground style.
+    var color: Color = .white
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
     @State private var textWidth = 0.0
     @State private var boxWidth = 0.0
-    @State private var offset = 0.0
+    /// The text drawn once, at the screen's pixel density; only while it scrolls.
+    @State private var image: CGImage?
 
     /// Space between the end of the text and the start of its copy.
     private static let gap = 48.0
     /// Scroll speed in points per second.
     private static let speed = 30.0
-    /// Rest at the start of each round.
-    private static let pause: Duration = .seconds(2.5)
+    /// Rest at the start of each round, in seconds.
+    private static let pause = 2.5
     /// Width of the soft fade at the edges while scrolling.
     private static let fade = 12.0
 
@@ -32,12 +38,22 @@ struct MarqueeText: View {
     var body: some View {
         Text(text)
             .font(font)
+            .foregroundStyle(color)
             .lineLimit(1)
             .frame(maxWidth: .infinity)
             // Hidden (but still sizing the row) while the scrolling copy shows.
-            .opacity(scrolls ? 0 : 1)
-            .overlay(alignment: .leading) {
-                if scrolls { scrollingText }
+            .opacity(scrolls && image != nil ? 0 : 1)
+            .overlay {
+                if scrolls, let image {
+                    ScrollingImageView(
+                        image: image,
+                        scale: displayScale,
+                        gap: Self.gap,
+                        speed: Self.speed,
+                        pause: Self.pause,
+                        fade: Self.fade
+                    )
+                }
             }
             // The text's natural width, measured without affecting the layout.
             .background {
@@ -45,61 +61,26 @@ struct MarqueeText: View {
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { textWidth = $0 }
             }
             .onGeometryChange(for: Double.self) { $0.size.width } action: { boxWidth = $0 }
-            // Restarts from the beginning when the song or the space changes.
-            .task(id: Restart(text: text, scrolls: scrolls, textWidth: textWidth)) { await scrollLoop() }
+            // Drawn again when the song, the screen or the need changes.
+            .task(id: ImageKey(text: text, scale: displayScale, scrolls: scrolls)) { renderImage() }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text)
     }
 
-    private var scrollingText: some View {
-        HStack(spacing: Self.gap) {
-            Text(text)
-            Text(text)
+    private func renderImage() {
+        guard scrolls else {
+            image = nil
+            return
         }
-        .font(font)
-        .fixedSize()
-        .offset(x: offset)
-        .frame(width: boxWidth, alignment: .leading)
-        .clipped()
-        .mask {
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: Self.fade / max(boxWidth, 1)),
-                    .init(color: .black, location: 1 - Self.fade / max(boxWidth, 1)),
-                    .init(color: .clear, location: 1),
-                ],
-                startPoint: .leading, endPoint: .trailing
-            )
-        }
+        let renderer = ImageRenderer(content: Text(text).font(font).foregroundStyle(color).fixedSize())
+        renderer.scale = displayScale
+        image = renderer.cgImage
     }
 
-    private func scrollLoop() async {
-        setOffset(0)
-        guard scrolls else { return }
-        let distance = textWidth + Self.gap
-        let duration = distance / Self.speed
-        while !Task.isCancelled {
-            try? await Task.sleep(for: Self.pause)
-            guard !Task.isCancelled else { return }
-            withAnimation(.linear(duration: duration)) { offset = -distance }
-            try? await Task.sleep(for: .seconds(duration))
-            guard !Task.isCancelled else { return }
-            // The copy now sits exactly where the text started: jump back unseen.
-            setOffset(0)
-        }
-    }
-
-    private func setOffset(_ value: Double) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { offset = value }
-    }
-
-    private struct Restart: Equatable {
+    private struct ImageKey: Equatable {
         let text: String
+        let scale: Double
         let scrolls: Bool
-        let textWidth: Double
     }
 }
 

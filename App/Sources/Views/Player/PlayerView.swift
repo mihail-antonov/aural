@@ -243,8 +243,7 @@ private struct CoverWithRing: View {
     let ringSize: Double
 
     /// False while nobody can see the window (covered, minimized, hidden or
-    /// on another Space): the spin and the ring then stop. The ring is
-    /// worked out from the clock, so it is right again when the window shows.
+    /// on another Space): the spin then pauses.
     @State private var windowIsVisible = true
 
     /// The cover turns like a record while music plays (`SpinningCoverImage`).
@@ -274,19 +273,15 @@ private struct CoverWithRing: View {
             // The record's label and spindle hole, as in the app icon. Round,
             // so it does not need to turn with the cover.
             VinylCenter(diameter: ringSize * Metrics.coverToRing * Self.labelToCover)
-            // Redrawn only while playing, and not on every frame: see
-            // `ProgressRing.redrawInterval`.
-            TimelineView(ProgressRing.Schedule(isPaused: model.playback.status != .playing || !windowIsVisible)) { context in
-                let duration = model.playback.track?.durationMs ?? 0
-                let elapsed = model.playback.position.current(at: context.date, durationMs: duration)
-                ProgressRing(
-                    progress: duration > 0 ? Double(elapsed) / Double(duration) : 0,
-                    trackID: model.playback.track?.id,
-                    durationMs: duration,
-                    canSeek: model.playback.availableActions.contains(.seek),
-                    onSeek: model.seek(toMs:)
-                )
-            }
+            // Moves by itself while playing (Core Animation, see `ProgressRing`).
+            ProgressRing(
+                position: model.playback.position,
+                isPlaying: model.playback.status == .playing,
+                trackID: model.playback.track?.id,
+                durationMs: model.playback.track?.durationMs ?? 0,
+                canSeek: model.playback.availableActions.contains(.seek),
+                onSeek: model.seek(toMs:)
+            )
         }
         .frame(width: ringSize, height: ringSize)
         .onWindowVisibilityChange { windowIsVisible = $0 }
