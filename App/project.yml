@@ -23,7 +23,7 @@ targets:
       base:
         PRODUCT_NAME: Aural
         PRODUCT_BUNDLE_IDENTIFIER: app.aural.Aural
-        MARKETING_VERSION: "0.0.2.0"
+        MARKETING_VERSION: "0.9.0"
         CURRENT_PROJECT_VERSION: "1"
         ARCHS: arm64
         SWIFT_VERSION: "6.0"
