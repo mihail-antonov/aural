@@ -14,12 +14,17 @@ public struct PlaybackSnapshot: Sendable, Equatable, Codable {
     /// What followed the track: the rest of a list Aural was playing, or the
     /// playlist / album tracks Soloist had queued. Played after `track`.
     public var upcoming: [Track]
+    /// 0–100. Soloist starts at its own volume after every restart, so Aural
+    /// gives it back the user's. Nil in files saved before Aural kept it
+    /// (an optional property decodes as nil when the key is missing).
+    public var volume: Int?
 
-    public init(track: Track, positionMs: Int, contextName: String?, upcoming: [Track]) {
+    public init(track: Track, positionMs: Int, contextName: String?, upcoming: [Track], volume: Int? = nil) {
         self.track = track
         self.positionMs = positionMs
         self.contextName = contextName
         self.upcoming = Array(upcoming.prefix(PlaybackQueue.limit))
+        self.volume = volume
     }
 
     /// `~/Library/Application Support/Aural/last-playback.json`.

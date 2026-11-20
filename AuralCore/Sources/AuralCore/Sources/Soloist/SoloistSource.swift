@@ -27,6 +27,11 @@ public actor SoloistSource: PlaybackSource {
     private var restored: PlaybackSnapshot?
     /// Where to seek once the restored track is playing.
     private var pendingSeek: (uri: String, positionMs: Int)?
+    /// The user's volume, saved with the snapshot.
+    private var rememberedVolume: Int?
+    /// The last session's volume, sent to Soloist once it is the active
+    /// device (an inactive device may not take it). Shown until then.
+    private var pendingVolume: Int?
 
     public init(configuration: SoloistConfiguration = SoloistConfiguration()) {
         (events, continuation) = AsyncStream.makeStream(
@@ -114,6 +119,16 @@ public actor SoloistSource: PlaybackSource {
             } else {
                 self.restored = nil // Soloist plays something: that wins.
             }
+        }
+        if let volume = pendingVolume {
+            if newState.isActiveDevice {
+                pendingVolume = nil
+                Task { await sendLogged(.setVolume(volume)) }
+            }
+            // Not Soloist's start-up volume, which would flash in between.
+            newState.volume = volume
+        } else if newState.volume != state.volume {
+            rememberedVolume = newState.volume
         }
         let trackStarted = newState.track.map(\.id).flatMap { $0 != state.track?.id ? $0 : nil }
         if let uri = trackStarted {
@@ -263,7 +278,17 @@ public actor SoloistSource: PlaybackSource {
             continuation.yield(.stateChanged(newState))
         }
     }
-    public func setVolume(_ volume: Int) async throws { try await send(.setVolume(min(100, max(0, volume)))) }
+    public func setVolume(_ volume: Int) async throws {
+        let volume = min(100, max(0, volume))
+        rememberedVolume = volume
+        if pendingVolume != nil {
+            // Still waiting to give Soloist the saved volume: this one replaces it.
+            pendingVolume = volume
+            state.volume = volume
+            continuation.yield(.stateChanged(state))
+        }
+        try await send(.setVolume(volume))
+    }
     public func setShuffle(_ enabled: Bool) async throws { try await control(.setShuffle(enabled)) }
 
     public func setRepeat(_ mode: RepeatMode) async throws {
@@ -320,7 +345,10 @@ public actor SoloistSource: PlaybackSource {
     // MARK: - Last session (PlaybackSource)
 
     public func snapshot() -> PlaybackSnapshot? {
-        if let restored { return restored } // not played since launch
+        if var restored { // not played since launch
+            restored.volume = rememberedVolume ?? restored.volume
+            return restored
+        }
         guard let track = state.track else { return nil }
         let upcoming: [Track] = if listQueue.isPlaying(track.id) {
             listQueue.upcoming.prefix(PlaybackQueue.limit).compactMap { listTracks[$0] }
@@ -333,7 +361,8 @@ public actor SoloistSource: PlaybackSource {
             track: track,
             positionMs: state.position.current(durationMs: track.durationMs),
             contextName: state.contextName,
-            upcoming: upcoming
+            upcoming: upcoming,
+            volume: rememberedVolume
         )
     }
 
@@ -341,6 +370,11 @@ public actor SoloistSource: PlaybackSource {
         guard state.track == nil else { return }
         restored = snapshot
         state = Self.state(showing: snapshot, on: state)
+        if let volume = snapshot.volume {
+            rememberedVolume = volume
+            pendingVolume = volume
+            state.volume = volume
+        }
         continuation.yield(.stateChanged(state))
     }
 
