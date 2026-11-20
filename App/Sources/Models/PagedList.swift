@@ -28,6 +28,9 @@ final class PagedList<Item: Sendable & Identifiable> {
 
     var canLoadMore: Bool { nextOffset != nil && !isLoading }
 
+    /// Loaded without error, and Spotify has nothing in it.
+    var isEmpty: Bool { hasLoaded && error == nil && items.isEmpty && !isLoading }
+
     /// Loads the first page once, or again if that failed.
     func loadIfNeeded() async {
         guard !hasLoaded || (error != nil && items.isEmpty) else { return }

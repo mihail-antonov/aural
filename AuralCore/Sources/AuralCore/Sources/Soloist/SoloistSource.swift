@@ -179,6 +179,7 @@ public actor SoloistSource: PlaybackSource {
     // MARK: - Commands (PlaybackSource)
 
     public func play(uri: String) async throws {
+        dropQueuedSongs()
         listQueue.stop()
         listTracks = [:]
         publishQueue()
@@ -188,6 +189,8 @@ public actor SoloistSource: PlaybackSource {
     /// Plays the chosen track and keeps the next track of the list queued
     /// (see `SoloistListQueue`).
     public func play(tracks: [Track], startingAt index: Int) async throws {
+        guard tracks.indices.contains(index) else { return }
+        dropQueuedSongs()
         guard let step = listQueue.start(tracks.map(\.id), at: index) else { return }
         let byURI = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         listTracks = Dictionary(listQueue.uris.compactMap { uri in byURI[uri].map { (uri, $0) } }, uniquingKeysWith: { first, _ in first })
@@ -273,11 +276,19 @@ public actor SoloistSource: PlaybackSource {
     /// its list and skips the queued songs when they start. A queued song
     /// may sound for a moment before it is skipped.
     public func clearQueue() async throws {
-        let queued = soloistUpcoming.filter { $0.source == .queue }.map(\.track.id)
+        dropQueuedSongs()
         listQueue.stop()
-        listQueue.skipWhenStarted(queued)
         listTracks = [:]
         publishQueue()
+    }
+
+    /// Playing something new starts with an empty queue: songs waiting in
+    /// Soloist's queue (queued earlier, e.g. from the Spotify app) are hidden
+    /// and skipped if they start, since Soloist's queue cannot be cleared.
+    /// The new list's own tracks are never skipped (`SoloistListQueue`
+    /// checks them first).
+    private func dropQueuedSongs() {
+        listQueue.skipWhenStarted(soloistUpcoming.filter { $0.source == .queue }.map(\.track.id))
     }
 
     /// Makes Soloist Spotify's active device (taking playback from the other

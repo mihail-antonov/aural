@@ -103,14 +103,57 @@ struct QueueRow: View {
     }
 }
 
+/// What an empty page or list says: the system `ContentUnavailableView`
+/// (icon, title, short description).
+struct EmptyState {
+    let title: String
+    let systemImage: String
+    let message: String
+
+    var view: some View {
+        ContentUnavailableView(title, systemImage: systemImage, description: Text(message))
+    }
+}
+
+extension View {
+    /// Shows `state` centered on the page (within the bars) while `isEmpty`.
+    func emptyState(_ state: EmptyState, when isEmpty: Bool) -> some View {
+        overlay {
+            if isEmpty { state.view }
+        }
+    }
+}
+
 /// Title of a native list `Section` (header: { ListSectionHeader(...) }).
 /// macOS draws it (small, grey, pinned on a blurred bar while its rows
 /// scroll); only the text is indented like the rows (`libraryRow`'s 16 pt).
+///
+/// It also keeps the page bar's blur neutral: pinned right under the bar, it
+/// is what the bar's scroll edge effect sees. Without a title, a cover sat
+/// directly under the bar and its color bled into the blur.
+///
+/// The space above and below a section belongs to its title, not to the
+/// rows: a macOS `List` centers a row's content in the row, so extra inset
+/// on one side of the first or last row showed up split on both sides (the
+/// first row looked farther from the second than the others).
 struct ListSectionHeader: View {
     let title: String
 
+    init(title: String) {
+        self.title = title
+    }
+
+    /// The number of items on Spotify, e.g. "48 Playlists" (just "Playlists"
+    /// until the first page has loaded).
+    init(count: Int?, one: String, many: String) {
+        title = count.map { "\($0) \($0 == 1 ? one : many)" } ?? many
+    }
+
     var body: some View {
-        Text(title).padding(.horizontal, 16)
+        Text(title)
+            .padding(.horizontal, 16)
+            .padding(.top, LibrarySpacing.aboveSection)
+            .padding(.bottom, LibrarySpacing.belowSectionTitle)
     }
 }
 
@@ -118,6 +161,29 @@ private enum RowMetrics {
     static let trackArtwork: CGFloat = 44
     static let collectionArtwork: CGFloat = 52
     static let cornerRadius: CGFloat = 6
+    /// Space above and below a row's content (`libraryRow`).
+    static let verticalInset: CGFloat = 7
+}
+
+/// Space around the library's lists and sections.
+enum LibrarySpacing {
+    /// Above every section title: from the page bar to the first title, and
+    /// between sections (e.g. Songs and Artists in search).
+    static let aboveSection: CGFloat = 16
+    /// From a section title down to its first row (plus the row's inset).
+    static let belowSectionTitle: CGFloat = 4
+    /// Added after each group of search results (Songs, Artists, …).
+    static let betweenSearchGroups: CGFloat = 16
+    /// After the last row, the same as above the first section title.
+    static let listEnd: CGFloat = aboveSection
+}
+
+/// Heights of whole rows: the cover plus `libraryRow`'s space above and below.
+enum LibraryRowHeight {
+    /// Songs with a cover (Liked, playlists, queue, artists).
+    static let track = RowMetrics.trackArtwork + 2 * RowMetrics.verticalInset
+    /// Playlists and albums.
+    static let collection = RowMetrics.collectionArtwork + 2 * RowMetrics.verticalInset
 }
 
 /// Shared layout of all rows.
@@ -188,29 +254,33 @@ extension EnvironmentValues {
 
 extension View {
     /// List row chrome for the library: no row background (the tinted window
-    /// background shows through), iOS-like insets, no separators. `extraTop`
-    /// / `extraBottom` add room, e.g. at the start and end of a section.
-    func libraryRow(extraTop: CGFloat = 0, extraBottom: CGFloat = 0) -> some View {
-        listRowInsets(EdgeInsets(top: 7 + extraTop, leading: 16, bottom: 7 + extraBottom, trailing: 16))
+    /// background shows through), iOS-like insets, no separators. The same
+    /// for every row; space around sections comes from `ListSectionHeader`.
+    func libraryRow() -> some View {
+        listRowInsets(EdgeInsets(
+            top: RowMetrics.verticalInset, leading: 16,
+            bottom: RowMetrics.verticalInset, trailing: 16
+        ))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
     }
 
-    /// A row inside a `Section`: the first and last rows get extra room, so
-    /// the rows keep away from the section titles around them.
-    func librarySectionRow(isFirst: Bool, isLast: Bool) -> some View {
-        let spacing: CGFloat = 8
-        return libraryRow(extraTop: isFirst ? spacing : 0, extraBottom: isLast ? spacing : 0)
+    /// Tells the list its rows' height up front. A macOS `List` lays new rows
+    /// out at an estimated height and then corrects the scroll position to
+    /// their real one, which made scrolling stutter where they differed.
+    func libraryRowHeight(_ height: CGFloat) -> some View {
+        environment(\.defaultMinListRowHeight, height)
     }
 
-    /// A list on the tinted background with room before the first and after
-    /// the last row. (`contentMargins` has no effect on a macOS `List`; a
-    /// safe-area inset does: the list scrolls under it and stops before it.)
+    /// A list on the tinted background with room after the last row. (Room
+    /// before the first row comes from the first section title: a top inset
+    /// would leave a strip above the pinned title where rows scroll through.
+    /// `contentMargins` has no effect on a macOS `List`; a safe-area inset
+    /// does: the list scrolls under it and stops before it.)
     func libraryList() -> some View {
         listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 8) }
-            .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 24) }
+            .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: LibrarySpacing.listEnd) }
     }
 }
 

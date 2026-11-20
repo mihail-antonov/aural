@@ -39,6 +39,11 @@ struct ProgressRing: View {
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
+    /// How often the ring is redrawn while playing. On a 3-minute song the
+    /// knob moves about half a point per redraw. (30 per second cost a lot
+    /// of CPU for a ring that barely moves; 4 per second looked choppy.)
+    static let redrawInterval = 1.0 / 8
+
     private var shownProgress: Double { min(max(dragProgress ?? seekTarget ?? progress, 0), 1) }
 
     var body: some View {

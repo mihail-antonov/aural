@@ -7,6 +7,8 @@ struct SearchView: View {
   let model: AppModel
   @State private var text = ""
   @State private var results = SearchResults.empty
+  /// The text `results` belong to.
+  @State private var searchedText = ""
   @State private var isSearching = false
   @State private var error: String?
 
@@ -35,6 +37,13 @@ struct SearchView: View {
       if let error { Text(error).font(.caption).foregroundStyle(.red).libraryRow() }
     }
     .libraryList()
+    // The system "No Results for …" view, centered.
+    .overlay {
+      if !isSearching, error == nil, results.isEmpty,
+         !searchedText.trimmingCharacters(in: .whitespaces).isEmpty, searchedText == text {
+        ContentUnavailableView.search(text: searchedText)
+      }
+    }
     // The field as a system bar: results scroll under it, blurred by
     // macOS (the scroll edge effect), like under the page header.
     .safeAreaBar(edge: .top, spacing: 0) {
@@ -53,6 +62,7 @@ struct SearchView: View {
         let found = try await library.search(text)
         guard !Task.isCancelled else { return }
         results = found
+        searchedText = text
         error = nil
       } catch {
         guard !Task.isCancelled else { return }
@@ -70,11 +80,14 @@ struct SearchView: View {
     if !items.isEmpty {
       Section {
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-          row(index, item)
-            .librarySectionRow(isFirst: index == 0, isLast: index == items.count - 1)
+          row(index, item).libraryRow()
         }
       } header: {
         ListSectionHeader(title: title)
+      } footer: {
+        // Extra room before the next kind of result. (A pinned title's own
+        // padding alone was not enough room between the groups.)
+        Color.clear.frame(height: LibrarySpacing.betweenSearchGroups)
       }
     }
   }

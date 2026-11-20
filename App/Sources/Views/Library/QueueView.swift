@@ -14,8 +14,7 @@ struct QueueView: View {
         List {
             if let track = model.playback.track {
                 SwiftUI.Section {
-                    QueueRow(track: track, isCurrent: true)
-                        .librarySectionRow(isFirst: true, isLast: true)
+                    QueueRow(track: track, isCurrent: true).libraryRow()
                 } header: {
                     ListSectionHeader(title: "Now Playing")
                 }
@@ -23,26 +22,30 @@ struct QueueView: View {
             ForEach(Self.sections(queue.upNext)) { section in
                 SwiftUI.Section {
                     ForEach(section.entries) { entry in
-                        row(entry, canJump: queue.canJump).librarySectionRow(
-                            isFirst: entry.id == section.entries.first?.id,
-                            isLast: entry.id == section.entries.last?.id
-                        )
+                        row(entry, canJump: queue.canJump).libraryRow()
                     }
                 } header: {
                     ListSectionHeader(title: section.title)
                 }
             }
-            if queue.upNext.isEmpty {
-                Text(model.playback.track == nil
-                     ? "Nothing is playing."
-                     : "Nothing queued. When the music ends, Spotify keeps playing similar songs.")
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.top, 12)
-                    .libraryRow()
+            // Something plays but nothing follows: say so under it.
+            if model.playback.track != nil, queue.upNext.isEmpty {
+                EmptyState(
+                    title: "Nothing Queued", systemImage: "list.bullet",
+                    message: "When the music ends, Spotify keeps playing similar songs."
+                )
+                .view
+                .libraryRow()
             }
         }
         .libraryList()
+        .libraryRowHeight(LibraryRowHeight.track)
+        // Nothing at all: centered on the page.
+        .emptyState(
+            EmptyState(title: "Nothing Playing", systemImage: "play.circle",
+                       message: "Play a song, playlist or album to see what comes next."),
+            when: model.playback.track == nil && queue.upNext.isEmpty
+        )
     }
 
     @ViewBuilder

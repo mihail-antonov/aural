@@ -147,35 +147,73 @@ private struct PlayerHeader: View {
 
 /// Where the music plays: a speaker icon, in the accent color while Aural
 /// (Soloist) is Spotify's active device, dimmed white while another device
-/// plays. Its menu shows "Playing in Spotify" / "Playing in Aural" with a
-/// checkmark; picking Aural takes playback over.
+/// plays. It opens a small popover with "Playing in Spotify" / "Playing in
+/// Aural"; picking Aural takes playback over.
 /// (Soloist does not say which other device; only shown while something is loaded.)
+///
+/// A popover, not a `Menu`: while a menu is open, AppKit holds the main
+/// thread and the spinning cover and the progress ring stop.
 private struct DeviceMenu: View {
     @Environment(AppModel.self) private var model
     let playback: PlaybackState
+    @State private var isOpen = false
 
     var body: some View {
         if playback.track != nil {
             let isHere = playback.isActiveDevice
-            Menu {
-                // Toggles get the system checkmark in a menu. "Playing in
-                // Spotify" only shows the state (Aural cannot pick another
-                // device); "Playing in Aural" takes playback over.
-                Toggle("Playing in Spotify", isOn: .constant(!isHere))
-                    .disabled(true)
-                Toggle("Playing in Aural", isOn: Binding(get: { isHere }, set: { if $0 { model.playHere() } }))
-                    .disabled(isHere)
-            } label: {
-                Label(isHere ? "Playing in Aural" : "Playing in Spotify", systemImage: "hifispeaker")
+            Button(isHere ? "Playing in Aural" : "Playing in Spotify", systemImage: "hifispeaker") {
+                isOpen.toggle()
             }
-            // Drawn like the other header icons (see `MoreMenu`).
-            .menuStyle(.button)
             .buttonStyle(IconButtonStyle(size: 15, frame: 28))
             .labelStyle(.iconOnly)
-            .menuIndicator(.hidden)
             .iconActive(isHere)
             .tooltip(isHere ? "Playing in Aural" : "Playing in Spotify")
+            .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    // "Playing in Spotify" only shows the state (Aural cannot
+                    // pick another device); "Playing in Aural" takes playback over.
+                    DeviceChoice(title: "Playing in Spotify", isSelected: !isHere) {}
+                        .disabled(true)
+                    DeviceChoice(title: "Playing in Aural", isSelected: isHere) {
+                        model.playHere()
+                        isOpen = false
+                    }
+                    .disabled(isHere)
+                }
+                .padding(8)
+            }
         }
+    }
+}
+
+/// One row of the device popover, with a checkmark like a menu item.
+private struct DeviceChoice: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    /// False when the row is `.disabled`, set from outside.
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(isSelected ? 1 : 0)
+                    .accessibilityHidden(true)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(minWidth: 160)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.borderless)
+        // Dimmed like a disabled menu item. (A fixed `.primary` would
+        // override the system's dimming and look clickable.)
+        .foregroundStyle(isEnabled ? .primary : .tertiary)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -216,27 +254,45 @@ private struct CoverWithRing: View {
     /// One slow turn: a real record (33⅓ rpm) would be dizzying.
     private static let secondsPerTurn = 20.0
 
-    private var spins: Bool { model.showsPlaying && !reduceMotion }
+    /// False while nobody can see the window (covered, minimized, hidden or
+    /// on another Space): the spin and the ring then stop redrawing. Both
+    /// are worked out from the clock, so they continue correctly when it shows again.
+    @State private var windowIsVisible = true
+
+    private var spins: Bool { model.showsPlaying && !reduceMotion && windowIsVisible }
 
     /// The label is smaller than on a real record (or the icon), so it
     /// leaves most of the album art visible.
     private static let labelToCover = 0.22
 
     var body: some View {
+        let coverSize = ringSize * Metrics.coverToRing
         ZStack {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: spinStart == nil)) { context in
+            // The shadow is cast by a plain disc that does not turn: a round
+            // cover casts the same shadow at any angle, and a shadow on the
+            // turning cover itself would be redrawn on every frame.
+            // It fades and scales with the cover (see `cover`).
+            Circle()
+                .fill(.black)
+                .frame(width: coverSize, height: coverSize)
+                .scaleEffect(coverIsShown && model.artwork != nil ? 1 : 0.96)
+                .opacity(coverIsShown ? 1 : 0)
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+                .animation(.easeInOut(duration: 0.35), value: coverIsShown)
+            // 24 frames a second, as in film: smooth for this slow turn,
+            // and cheaper than 30. (20 looked choppy.)
+            TimelineView(.animation(minimumInterval: 1.0 / 24, paused: spinStart == nil)) { context in
                 cover
-                    .frame(width: ringSize * Metrics.coverToRing, height: ringSize * Metrics.coverToRing)
+                    .frame(width: coverSize, height: coverSize)
                     .clipShape(.circle)
-                    // Before the shadow, so the shadow stays below the cover.
                     .rotationEffect(.degrees(angle(at: context.date)))
             }
-            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
             // The record's label and spindle hole, as in the app icon. Round,
             // so it does not need to turn with the cover.
             VinylCenter(diameter: ringSize * Metrics.coverToRing * Self.labelToCover)
             // Only the ring redraws every frame, and only while playing.
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: model.playback.status != .playing)) { context in
+            // Not on every frame: see `ProgressRing.redrawInterval`.
+            TimelineView(.animation(minimumInterval: ProgressRing.redrawInterval, paused: model.playback.status != .playing || !windowIsVisible)) { context in
                 let duration = model.playback.track?.durationMs ?? 0
                 let elapsed = model.playback.position.current(at: context.date, durationMs: duration)
                 ProgressRing(
@@ -250,6 +306,7 @@ private struct CoverWithRing: View {
         }
         .frame(width: ringSize, height: ringSize)
         .onChange(of: spins, initial: true) { _, spinning in updateSpin(spinning) }
+        .onWindowVisibilityChange { windowIsVisible = $0 }
     }
 
     private func angle(at date: Date) -> Double {
@@ -267,20 +324,32 @@ private struct CoverWithRing: View {
         }
     }
 
+    /// Whether the loaded cover belongs to the current track.
+    private var artworkIsCurrent: Bool {
+        model.artworkTrackID != nil && model.artworkTrackID == model.playback.track?.id
+    }
+
+    /// Whether `cover` shows something opaque (the album art or the plain
+    /// black record) rather than the faint placeholder; only then is there a shadow.
+    private var coverIsShown: Bool {
+        model.artwork != nil ? artworkIsCurrent : artworkIsCurrent || model.playback.track == nil
+    }
+
     /// When the track changes, the old cover fades out right away; the new
     /// one fades in once it has loaded. The image is swapped while invisible,
     /// so it never snaps. A faint circle stays behind as the placeholder.
     private var cover: some View {
-        let isCurrent = model.artworkTrackID != nil && model.artworkTrackID == model.playback.track?.id
+        let isCurrent = artworkIsCurrent
         return ZStack {
             Circle().fill(.white.opacity(0.08))
             if let image = model.artwork {
                 Image(decorative: image, scale: 2).resizable().scaledToFill()
                     .opacity(isCurrent ? 1 : 0)
                     .scaleEffect(isCurrent ? 1 : 0.96)
-            } else if isCurrent || model.playback.track == nil {
-                // The track has no cover at all.
-                Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.white.opacity(0.4))
+            } else if coverIsShown {
+                // The track has no cover at all: a plain black record, as in
+                // the app icon (the label sits on top, see `VinylCenter`).
+                Circle().fill(.black)
             }
         }
         .animation(.easeInOut(duration: 0.35), value: isCurrent)

@@ -22,21 +22,29 @@ struct PlaylistDetailView: View {
     var body: some View {
         Group {
             if let tracks {
-                PagedListView(list: tracks) {
+                PagedListView(list: tracks, empty: EmptyState(
+                    title: "No Songs", systemImage: "music.note", message: "This playlist is empty."
+                )) {
                     header
                 } row: { index, track in
                     Button { model.play(tracks: tracks.items, startingAt: index) } label: { TrackRow(track: track) }
                         .buttonStyle(.plain)
                 }
+                .libraryRowHeight(LibraryRowHeight.track)
             } else {
                 List {
-                    header.libraryRow()
-                    ContentUnavailableView(
-                        "Tracks not available",
-                        systemImage: "lock",
-                        description: Text("Spotify only shares the tracks of playlists you own or collaborate on. You can still play this playlist.")
-                    )
-                    .libraryRow()
+                    // A section title above the cover, as in `PagedListView`.
+                    Section {
+                        header.libraryRow()
+                        ContentUnavailableView(
+                            "Tracks not available",
+                            systemImage: "lock",
+                            description: Text("Spotify only shares the tracks of playlists you own or collaborate on. You can still play this playlist.")
+                        )
+                        .libraryRow()
+                    } header: {
+                        ListSectionHeader(count: playlist.trackCount, one: "Song", many: "Songs")
+                    }
                 }
                 .libraryList()
             }
@@ -76,7 +84,9 @@ struct AlbumDetailView: View {
     var body: some View {
         Group {
             if let tracks {
-                PagedListView(list: tracks) {
+                PagedListView(list: tracks, empty: EmptyState(
+                    title: "No Songs", systemImage: "music.note", message: "Spotify has no songs for this album."
+                )) {
                     CollectionHeader(
                         imageURL: album.coverURL ?? album.imageURL,
                         title: album.name,
@@ -113,7 +123,9 @@ struct ArtistDetailView: View {
     var body: some View {
         Group {
             if let tracks {
-                PagedListView(list: tracks) {
+                PagedListView(list: tracks, empty: EmptyState(
+                    title: "No Songs", systemImage: "music.mic", message: "Spotify found no songs by this artist."
+                )) {
                     CollectionHeader(
                         imageURL: artist.imageURL,
                         title: artist.name,
@@ -127,6 +139,7 @@ struct ArtistDetailView: View {
                     Button { model.play(tracks: tracks.items, startingAt: index) } label: { TrackRow(track: track) }
                         .buttonStyle(.plain)
                 }
+                .libraryRowHeight(LibraryRowHeight.track)
             }
         }
     }
@@ -204,7 +217,6 @@ struct CollectionHeader: View {
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .padding(.top, 4)
         .padding(.bottom, 10)
     }
 
