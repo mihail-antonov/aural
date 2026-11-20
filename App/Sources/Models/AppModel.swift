@@ -496,10 +496,12 @@ final class AppModel {
 
     func previous() { send { try await $0.previous() } }
     func clearQueue() { send { try await $0.clearQueue() } }
-    /// Plays an upcoming track from the Queue page (stays on that page).
+    /// Plays an upcoming track from the Queue page and shows the player,
+    /// like playing anything from the library.
     func jump(to entry: QueueEntry) {
         let id = entry.id
         send { try await $0.jump(toQueueEntry: id) }
+        page = .player
     }
     func seek(toMs positionMs: Int) { send { try await $0.seek(toMs: positionMs) } }
 

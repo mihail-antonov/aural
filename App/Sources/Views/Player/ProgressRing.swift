@@ -44,6 +44,26 @@ struct ProgressRing: View {
     /// of CPU for a ring that barely moves; 4 per second looked choppy.)
     static let redrawInterval = 1.0 / 8
 
+    /// When the ring's `TimelineView` redraws: every `redrawInterval` while
+    /// playing, never while paused.
+    ///
+    /// A timer-like schedule, not `.animation(minimumInterval:)`: that one
+    /// still wakes SwiftUI on every screen frame (60–120 times a second) to
+    /// check whether the interval has passed, which costs CPU even when
+    /// nothing is redrawn.
+    struct Schedule: TimelineSchedule {
+        let isPaused: Bool
+
+        func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+            var next: Date? = startDate
+            return AnyIterator {
+                // While paused, only the start date: one redraw, then none.
+                defer { next = isPaused ? nil : next.map { $0 + ProgressRing.redrawInterval } }
+                return next
+            }
+        }
+    }
+
     private var shownProgress: Double { min(max(dragProgress ?? seekTarget ?? progress, 0), 1) }
 
     var body: some View {

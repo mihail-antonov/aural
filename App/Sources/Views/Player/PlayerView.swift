@@ -242,23 +242,12 @@ private struct CoverWithRing: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let ringSize: Double
 
-    // The cover turns like a record while music plays. The angle is
-    // worked out from the clock (`angle(at:)`) and redrawn by a timeline
-    // only while spinning, like the ring. (A repeating SwiftUI animation
-    // could not be stopped on pause, and each play stacked another one.)
-    /// Angle reached when the spin last stopped (or started).
-    @State private var spinBase = 0.0
-    /// When the current spin started; nil while still.
-    @State private var spinStart: Date?
-
-    /// One slow turn: a real record (33⅓ rpm) would be dizzying.
-    private static let secondsPerTurn = 20.0
-
     /// False while nobody can see the window (covered, minimized, hidden or
-    /// on another Space): the spin and the ring then stop redrawing. Both
-    /// are worked out from the clock, so they continue correctly when it shows again.
+    /// on another Space): the spin and the ring then stop. The ring is
+    /// worked out from the clock, so it is right again when the window shows.
     @State private var windowIsVisible = true
 
+    /// The cover turns like a record while music plays (`SpinningCoverImage`).
     private var spins: Bool { model.showsPlaying && !reduceMotion && windowIsVisible }
 
     /// The label is smaller than on a real record (or the icon), so it
@@ -279,20 +268,15 @@ private struct CoverWithRing: View {
                 .opacity(coverIsShown ? 1 : 0)
                 .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
                 .animation(.easeInOut(duration: 0.35), value: coverIsShown)
-            // 24 frames a second, as in film: smooth for this slow turn,
-            // and cheaper than 30. (20 looked choppy.)
-            TimelineView(.animation(minimumInterval: 1.0 / 24, paused: spinStart == nil)) { context in
-                cover
-                    .frame(width: coverSize, height: coverSize)
-                    .clipShape(.circle)
-                    .rotationEffect(.degrees(angle(at: context.date)))
-            }
+            cover
+                .frame(width: coverSize, height: coverSize)
+                .clipShape(.circle)
             // The record's label and spindle hole, as in the app icon. Round,
             // so it does not need to turn with the cover.
             VinylCenter(diameter: ringSize * Metrics.coverToRing * Self.labelToCover)
-            // Only the ring redraws every frame, and only while playing.
-            // Not on every frame: see `ProgressRing.redrawInterval`.
-            TimelineView(.animation(minimumInterval: ProgressRing.redrawInterval, paused: model.playback.status != .playing || !windowIsVisible)) { context in
+            // Redrawn only while playing, and not on every frame: see
+            // `ProgressRing.redrawInterval`.
+            TimelineView(ProgressRing.Schedule(isPaused: model.playback.status != .playing || !windowIsVisible)) { context in
                 let duration = model.playback.track?.durationMs ?? 0
                 let elapsed = model.playback.position.current(at: context.date, durationMs: duration)
                 ProgressRing(
@@ -305,23 +289,7 @@ private struct CoverWithRing: View {
             }
         }
         .frame(width: ringSize, height: ringSize)
-        .onChange(of: spins, initial: true) { _, spinning in updateSpin(spinning) }
         .onWindowVisibilityChange { windowIsVisible = $0 }
-    }
-
-    private func angle(at date: Date) -> Double {
-        guard let spinStart else { return spinBase }
-        return spinBase + date.timeIntervalSince(spinStart) / Self.secondsPerTurn * 360
-    }
-
-    private func updateSpin(_ spinning: Bool) {
-        if spinning {
-            if spinStart == nil { spinStart = .now }
-        } else if spinStart != nil {
-            // Stop where it is.
-            spinBase = angle(at: .now).truncatingRemainder(dividingBy: 360)
-            spinStart = nil
-        }
     }
 
     /// Whether the loaded cover belongs to the current track.
@@ -343,7 +311,8 @@ private struct CoverWithRing: View {
         return ZStack {
             Circle().fill(.white.opacity(0.08))
             if let image = model.artwork {
-                Image(decorative: image, scale: 2).resizable().scaledToFill()
+                // Only the album art turns: the circles around it look the same at any angle.
+                SpinningCoverImage(image: image, isSpinning: spins)
                     .opacity(isCurrent ? 1 : 0)
                     .scaleEffect(isCurrent ? 1 : 0.96)
             } else if coverIsShown {
